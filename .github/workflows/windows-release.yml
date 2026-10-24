@@ -47,9 +47,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh release create "desktop-v0.1.0-${{ github.run_number }}-${{ github.run_attempt }}" \
+          version="$(node -p "require('./package.json').version")"
+          gh release create "desktop-v${version}-${{ github.run_number }}-${{ github.run_attempt }}" \
             download/*-win.zip \
-            --title "AI Blog Studio 0.1.0 · Windows build ${{ github.run_number }}" \
+            --title "AI Blog Studio ${version} · Windows build ${{ github.run_number }}" \
             --notes-file .github/RELEASE_NOTES.md \
             --target "${{ github.sha }}" \
             --prerelease

@@ -59,10 +59,17 @@ async function request(url, options = {}) {
     redirect: "error",
     signal: AbortSignal.timeout(45000),
   });
-  if (!r.ok)
+  if (!r.ok) {
+    const reasons = {
+      401: "API 키가 올바르지 않거나 만료됐습니다.",
+      403: "이 서비스 또는 모델에 접근 권한이 없습니다.",
+      404: "API 주소 또는 모델 ID를 확인하세요.",
+      429: "사용 한도·결제 잔액·요청 제한을 확인하세요.",
+    };
     throw Error(
-      `연결 실패 (HTTP ${r.status}). 주소·권한·인증정보를 확인하세요.`,
+      `연결 실패 (HTTP ${r.status}). ${reasons[r.status] || "서비스 상태와 연결 설정을 확인하세요."}`,
     );
+  }
   return r.json();
 }
 function siteRequest(s, publish = false, d) {
@@ -130,7 +137,16 @@ app.whenReady().then(() => {
       };
   for (const d of state.drafts)
     if (d.status === "publishing") d.status = "uncertain";
+  state.workspace ||= { name: "개인 워크스페이스" };
   persist();
+  ipcMain.handle("saveWorkspace", (_, input) => {
+    const name = String(input.name || "").trim();
+    if (!name || name.length > 40)
+      throw Error("워크스페이스 이름은 1~40자로 입력하세요.");
+    state.workspace = { name };
+    persist();
+    return publicState();
+  });
   ipcMain.handle("load", () => publicState());
   ipcMain.handle("saveDraft", (_, input) => {
     const old = state.drafts.find((d) => d.id === input.id);
@@ -212,13 +228,63 @@ app.whenReady().then(() => {
     persist();
     return publicState();
   });
-  ipcMain.handle("saveAI", (_, a) => {
-    httpsUrl(a.endpoint);
-    state.ai = {
-      endpoint: a.endpoint.replace(/\/$/, ""),
-      model: a.model,
-      secret: a.credential ? encrypt(a.credential) : state.ai.secret,
-    };
+  function aiConfig(input) {
+    const endpoint = String(input.endpoint || "")
+      .trim()
+      .replace(/\/+$/, "")
+      .replace(/\/chat\/completions$/, "");
+    const u = httpsUrl(endpoint);
+    if (u.search || u.hash)
+      throw Error("API 기본 주소에 쿼리나 #을 넣지 마세요.");
+    const model = String(input.model || "").trim();
+    if (!model) throw Error("모델 ID를 입력하세요.");
+    const credential = String(input.credential || "").trim();
+    if (!credential && endpoint !== state.ai.endpoint && state.ai.secret)
+      throw Error(
+        "다른 API 주소로 변경할 때는 해당 서비스의 API 키를 새로 입력하세요.",
+      );
+    const secret = credential ? encrypt(credential) : state.ai.secret;
+    if (!secret) throw Error("API 키를 입력하세요.");
+    return { endpoint, model, secret };
+  }
+  ipcMain.handle("saveAI", (_, input) => {
+    state.ai = aiConfig(input);
+    persist();
+    return publicState();
+  });
+  ipcMain.handle("listAIModels", async (_, input) => {
+    const a = aiConfig(input);
+    const result = await request(a.endpoint + "/models", {
+      headers: { Authorization: "Bearer " + decrypt(a.secret) },
+    });
+    if (!Array.isArray(result.data))
+      throw Error(
+        "모델 목록을 지원하지 않는 API입니다. 모델 ID를 직접 입력하세요.",
+      );
+    return result.data
+      .filter((v) => typeof v.id === "string")
+      .map((v) => v.id)
+      .sort();
+  });
+  ipcMain.handle("testAI", async (_, input) => {
+    const a = aiConfig(input);
+    const result = await request(a.endpoint + "/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + decrypt(a.secret),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: a.model,
+        messages: [{ role: "user", content: "Reply with OK only." }],
+      }),
+    });
+    if (!result.choices?.[0]?.message?.content?.trim())
+      throw Error(
+        "서버 응답은 받았지만 생성된 문장이 없습니다. 모델 호환성을 확인하세요.",
+      );
+    state.ai = { ...a, testedAt: new Date().toISOString() };
+    log("AI 연결 및 실제 생성 응답 확인 완료");
     persist();
     return publicState();
   });

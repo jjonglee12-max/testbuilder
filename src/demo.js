@@ -47,6 +47,17 @@ export const api = window.studio || {
     s.prompt = prompt;
     return write(s);
   },
+  saveWorkspace: async ({ name }) => {
+    const s = read();
+    s.workspace = { name };
+    return write(s);
+  },
+  listAIModels: async () => {
+    throw Error("모델 조회는 데스크톱 앱에서 사용하세요.");
+  },
+  testAI: async () => {
+    throw Error("AI 연결 테스트는 데스크톱 앱에서 사용하세요.");
+  },
   saveAI: async () => {
     throw Error("AI 연결은 데스크톱 앱에서 설정하세요.");
   },

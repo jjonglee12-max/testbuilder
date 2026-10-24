@@ -921,3 +921,12 @@ footer {
     grid-template-columns: 1fr;
   }
 }
+
+button.workspace {
+  width: 100%;
+  text-align: left;
+  justify-content: flex-start;
+}
+.ai-settings > button {
+  margin: 6px 8px 4px 0;
+}

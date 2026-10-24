@@ -72,6 +72,8 @@ function App() {
       model: "gpt-4.1-mini",
       credential: "",
     }),
+    [workspaceName, setWorkspaceName] = useState("개인 워크스페이스"),
+    [models, setModels] = useState([]),
     [prompt, setPrompt] = useState(""),
     [checked, setChecked] = useState(false);
   useEffect(() => {
@@ -79,6 +81,7 @@ function App() {
       .load()
       .then((s) => {
         setData(s);
+        setWorkspaceName(s.workspace?.name || "개인 워크스페이스");
         setAi({ ...s.ai, credential: "" });
         setPrompt(s.prompt);
       })
@@ -140,6 +143,10 @@ function App() {
     ["settings", Settings, "AI · 프롬프트"],
   ];
   const titles = {
+    workspace: [
+      "워크스페이스 설정",
+      "내 편집 공간의 이름과 연결 상태를 관리하세요.",
+    ],
     dashboard: [
       "작은 아이디어에서, 좋은 글까지.",
       "오늘의 콘텐츠 작업을 한곳에서 이어가세요.",
@@ -167,13 +174,18 @@ function App() {
             <small>AI CONTENT WORKSPACE</small>
           </div>
         </div>
-        <div className="workspace">
+        <button
+          className="workspace"
+          onClick={() => setPage("workspace")}
+          aria-label="워크스페이스 설정"
+        >
           <span className="avatar">나</span>
           <div>
-            개인 워크스페이스<small>로컬에 안전하게 보관</small>
+            {data.workspace?.name || "개인 워크스페이스"}
+            <small>로컬에 안전하게 보관</small>
           </div>
           <ChevronRight size={15} />
-        </div>
+        </button>
         <div className="nav-label">WORKSPACE</div>
         <nav>
           {nav.map(([id, Icon, name]) => (
@@ -203,14 +215,14 @@ function App() {
         <div className="sidebar-bottom">
           <span className="dot" />
           {preview ? "브라우저 화면 확인 모드" : "데스크톱 · 로컬 저장"}
-          <small>AI Blog Studio · v0.1</small>
+          <small>AI Blog Studio · v0.1.1</small>
         </div>
       </aside>
       <div className="shell">
         <header>
           <div className="breadcrumb">
             워크스페이스 <ChevronRight size={13} />{" "}
-            {nav.find((n) => n[0] === page)?.[2]}
+            {nav.find((n) => n[0] === page)?.[2] || "워크스페이스 설정"}
           </div>
           <div className="header-right">
             <span className="pill">
@@ -869,6 +881,46 @@ function App() {
               </section>
             </div>
           )}
+          {page === "workspace" && (
+            <section className="panel padded">
+              <h3>워크스페이스</h3>
+              <p className="hint">
+                현재 버전은 하나의 개인 작업 공간을 사용합니다. 이름을 변경해도
+                기존 원고·사이트·AI 설정은 유지됩니다.
+              </p>
+              <label>
+                워크스페이스 이름
+                <input
+                  maxLength={40}
+                  value={workspaceName}
+                  onChange={(e) => setWorkspaceName(e.target.value)}
+                />
+              </label>
+              <button
+                className="primary"
+                disabled={busy || !workspaceName.trim()}
+                onClick={() =>
+                  run(async () => {
+                    setData(await api.saveWorkspace({ name: workspaceName }));
+                    setNotice("워크스페이스 이름을 저장했습니다.");
+                  })
+                }
+              >
+                이름 저장
+              </button>
+              <hr />
+              <p>
+                보관 원고 {data.drafts.length}개 · 연결 사이트{" "}
+                {data.sites.length}개
+              </p>
+              <button className="secondary" onClick={() => setPage("settings")}>
+                AI 연결 설정 열기
+              </button>{" "}
+              <button className="secondary" onClick={() => setPage("sites")}>
+                사이트 관리 열기
+              </button>
+            </section>
+          )}
           {page === "settings" && (
             <>
               <section className="panel padded ai-settings">
@@ -880,6 +932,11 @@ function App() {
                   로그인과 별개이며 API 사용료가 발생할 수 있습니다. Codex CLI
                   연결은 아직 지원하지 않습니다.
                 </p>
+                <div className="review-note">
+                  ① API 기본 주소·모델·키 입력 → ② 모델 목록 확인(선택) → ③ 연결
+                  테스트 후 저장. ChatGPT 로그인 계정이 아닌 별도 API 키가
+                  필요합니다.
+                </div>
                 <div className="form-row">
                   <label>
                     API 기본 주소
@@ -893,6 +950,7 @@ function App() {
                   <label>
                     모델 ID
                     <input
+                      list="ai-models"
                       value={ai.model}
                       onChange={(e) => setAi({ ...ai, model: e.target.value })}
                     />
@@ -920,8 +978,57 @@ function App() {
                     })
                   }
                 >
-                  연결 설정 저장
+                  설정만 저장
                 </button>
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() =>
+                    run(async () => {
+                      const values = await api.listAIModels(ai);
+                      setModels(values);
+                      setNotice(
+                        `모델 ${values.length}개를 조회했습니다. 모델 ID 입력란에서 선택하세요.`,
+                      );
+                    })
+                  }
+                >
+                  모델 목록 불러오기
+                </button>
+                <datalist id="ai-models">
+                  {models.map((id) => (
+                    <option value={id} key={id} />
+                  ))}
+                </datalist>
+                <button
+                  className="primary"
+                  disabled={busy}
+                  onClick={() =>
+                    run(async () => {
+                      if (
+                        !window.confirm(
+                          "선택한 AI 서비스에 짧은 생성 요청을 보내 연결을 확인합니다. 소액 API 사용료가 발생할 수 있습니다. 진행할까요?",
+                        )
+                      )
+                        return;
+                      const next = await api.testAI(ai);
+                      setData(next);
+                      setAi({ ...next.ai, credential: "" });
+                      setNotice(
+                        "AI 연결·실제 생성 응답을 확인하고 설정을 저장했습니다.",
+                      );
+                    })
+                  }
+                >
+                  {busy ? "확인 중…" : "연결 테스트 후 저장"}
+                </button>
+                <p className="hint">
+                  {data.ai.testedAt
+                    ? `마지막 생성 응답 확인: ${new Date(data.ai.testedAt).toLocaleString("ko-KR")}`
+                    : data.ai.hasSecret
+                      ? "키 저장됨 · 실제 생성 연결은 아직 확인하지 않았습니다."
+                      : "API 키 미등록 · 연결 테스트를 진행하세요."}
+                </p>
               </section>
               <section className="panel padded prompt-panel">
                 <div className="section-heading">

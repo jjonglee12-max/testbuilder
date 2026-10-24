@@ -1,8 +1,8 @@
-AI Blog Studio의 첫 Windows 데스크톱 버전입니다.
+AI Blog Studio의 Windows 데스크톱 개발 버전입니다.
 
 ## 다운로드와 실행
 
-1. 아래 Assets에서 `AI.Blog.Studio-0.1.0-win.zip` 또는 이름이 비슷한 `*-win.zip` 파일을 다운로드하세요. `Source code`는 실행 파일이 아닙니다.
+1. 아래 Assets에서 `AI.Blog.Studio-0.1.1-win.zip` 또는 이름이 비슷한 `*-win.zip` 파일을 다운로드하세요. `Source code`는 실행 파일이 아닙니다.
 2. ZIP을 모두 압축 해제하세요.
 3. 압축을 푼 폴더의 `AI Blog Studio.exe`를 실행하세요.
 
@@ -13,3 +13,9 @@ AI Blog Studio의 첫 Windows 데스크톱 버전입니다.
 원고 작성·저장·미리보기, AI API 연결, 편집 프롬프트, WordPress/Blogger 연결, 사람이 승인한 버전의 즉시 발행, 중복 발행 차단과 결과 확인.
 
 AI 사용에는 별도 API 키가 필요합니다. WordPress는 Application Password, Blogger는 수동 OAuth 액세스 토큰을 사용합니다. 예약 발행·이미지 업로드·자동 웹 검색은 아직 지원하지 않습니다. 자세한 내용은 저장소 README를 참고하세요.
+
+## 0.1.1 수정
+- AI 설정 검증, 모델 조회, 실제 생성 연결 테스트와 상태 표시 추가
+- API 오류별 안내와 다른 공급자 주소로 변경 시 키 재입력 보호
+- 워크스페이스 설정 열기·이름 변경·저장 추가
+- 기존 원고·사이트 설정 유지
