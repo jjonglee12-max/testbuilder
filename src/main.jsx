@@ -1,0 +1,988 @@
+import React, { useState, useEffect } from "react";
+import { createRoot } from "react-dom/client";
+import {
+  LayoutDashboard,
+  FileText,
+  Library,
+  Globe,
+  Settings,
+  Plus,
+  ArrowUpRight,
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  Clock,
+  Search,
+  Sparkles,
+  ShieldCheck,
+  Send,
+  Save,
+  Trash2,
+  ChevronRight,
+  BookOpen,
+  PenLine,
+  Link,
+  Activity,
+  AlertCircle,
+} from "lucide-react";
+import { api, preview } from "./demo";
+import "./style.css";
+const blank = () => ({
+  title: "",
+  body: "",
+  topic: "",
+  type: "도구 소개",
+  sources: "",
+  siteId: "",
+  disclosure: "",
+});
+const types = [
+  "도구 소개",
+  "사용법·문제 해결",
+  "도구 비교",
+  "AI 뉴스 해설",
+  "실사용 리뷰",
+  "개념·업무 활용",
+];
+const labels = {
+  draft: "작성 중",
+  approved: "승인 완료",
+  published: "발행 완료",
+  uncertain: "결과 확인 필요",
+  publishing: "발행 중",
+};
+function App() {
+  const [data, setData] = useState(null),
+    [page, setPage] = useState("dashboard"),
+    [draft, setDraft] = useState(blank()),
+    [tab, setTab] = useState("write"),
+    [busy, setBusy] = useState(false),
+    [notice, setNotice] = useState(""),
+    [query, setQuery] = useState(""),
+    [site, setSite] = useState({
+      name: "",
+      type: "wordpress",
+      url: "",
+      username: "",
+      blogId: "",
+      credential: "",
+    }),
+    [ai, setAi] = useState({
+      endpoint: "https://api.openai.com/v1",
+      model: "gpt-4.1-mini",
+      credential: "",
+    }),
+    [prompt, setPrompt] = useState(""),
+    [checked, setChecked] = useState(false);
+  useEffect(() => {
+    api
+      .load()
+      .then((s) => {
+        setData(s);
+        setAi({ ...s.ai, credential: "" });
+        setPrompt(s.prompt);
+      })
+      .catch((e) => setNotice(e.message));
+  }, []);
+  async function run(fn) {
+    setBusy(true);
+    setNotice("");
+    try {
+      await fn();
+    } catch (e) {
+      setNotice(e.message);
+      try {
+        const s = await api.load();
+        setData(s);
+        setDraft(
+          (current) => s.drafts.find((d) => d.id === current.id) || current,
+        );
+      } catch {}
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function refresh() {
+    const s = await api.load();
+    setData(s);
+    return s;
+  }
+  function edit(d) {
+    setDraft({ ...d });
+    setChecked(false);
+    setTab("write");
+    setPage("editor");
+  }
+  function change(k, v) {
+    setDraft((d) => ({ ...d, [k]: v, approval: undefined, status: "draft" }));
+    setChecked(false);
+  }
+  async function save() {
+    const d = await api.saveDraft(draft);
+    setDraft(d);
+    await refresh();
+    return d;
+  }
+  if (!data)
+    return (
+      <div className="loading">
+        AI Blog Studio를 준비하고 있습니다… {notice}
+      </div>
+    );
+  const published = data.drafts.filter((d) => d.status === "published"),
+    pending = data.drafts.filter((d) => d.status === "draft"),
+    approved = data.drafts.filter((d) => d.status === "approved");
+  const nav = [
+    ["dashboard", LayoutDashboard, "대시보드"],
+    ["drafts", FileText, "원고 보관함"],
+    ["editor", PenLine, "새 글 작성"],
+    ["sites", Globe, "사이트 관리"],
+    ["settings", Settings, "AI · 프롬프트"],
+  ];
+  const titles = {
+    dashboard: [
+      "작은 아이디어에서, 좋은 글까지.",
+      "오늘의 콘텐츠 작업을 한곳에서 이어가세요.",
+    ],
+    drafts: ["원고 보관함", "아이디어부터 발행까지, 모든 원고의 기록입니다."],
+    editor: [
+      "글쓰기 스튜디오",
+      "자료를 바탕으로 쓰고, 직접 확인한 뒤 발행하세요.",
+    ],
+    sites: ["사이트 관리", "내 블로그를 연결하고 발행할 곳을 관리하세요."],
+    settings: [
+      "나만의 편집 기준",
+      "AI 연결과 블로그의 글쓰기 원칙을 설정하세요.",
+    ],
+  };
+  return (
+    <div className="app">
+      <aside>
+        <div className="brand">
+          <div className="brand-icon">
+            <BookOpen size={23} />
+          </div>
+          <div>
+            blog<span>studio</span>
+            <small>AI CONTENT WORKSPACE</small>
+          </div>
+        </div>
+        <div className="workspace">
+          <span className="avatar">나</span>
+          <div>
+            개인 워크스페이스<small>로컬에 안전하게 보관</small>
+          </div>
+          <ChevronRight size={15} />
+        </div>
+        <div className="nav-label">WORKSPACE</div>
+        <nav>
+          {nav.map(([id, Icon, name]) => (
+            <button
+              key={id}
+              className={page === id ? "active" : ""}
+              onClick={() => {
+                if (id === "editor") edit(blank());
+                else setPage(id);
+              }}
+            >
+              <Icon size={19} />
+              {name}
+              {id === "drafts" && <em>{data.drafts.length}</em>}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-note">
+          <ShieldCheck size={20} />
+          <b>발행은 내 결정으로</b>
+          <p>
+            AI가 초안을 준비하고,
+            <br />
+            마지막 확인은 내가 합니다.
+          </p>
+        </div>
+        <div className="sidebar-bottom">
+          <span className="dot" />
+          {preview ? "브라우저 화면 확인 모드" : "데스크톱 · 로컬 저장"}
+          <small>AI Blog Studio · v0.1</small>
+        </div>
+      </aside>
+      <div className="shell">
+        <header>
+          <div className="breadcrumb">
+            워크스페이스 <ChevronRight size={13} />{" "}
+            {nav.find((n) => n[0] === page)?.[2]}
+          </div>
+          <div className="header-right">
+            <span className="pill">
+              <span className="dot" /> 사람 승인 방식
+            </span>
+            <span className="avatar small">나</span>
+          </div>
+        </header>
+        <main>
+          <div className="page-heading">
+            <div>
+              <div className="eyebrow">YOUR PERSONAL EDITORIAL DESK</div>
+              <h1>{titles[page][0]}</h1>
+              <p>{titles[page][1]}</p>
+            </div>
+            {page !== "editor" && (
+              <button className="primary" onClick={() => edit(blank())}>
+                <Plus size={17} />새 글 작성
+              </button>
+            )}
+          </div>
+          {preview && (
+            <div className="preview-banner">
+              <AlertCircle size={16} />
+              화면 확인 모드입니다. 원고 편집은 가능하며, AI 연결·승인·실제
+              발행은 데스크톱 앱에서 사용합니다.
+            </div>
+          )}
+          {notice && (
+            <div role="alert" className="notice">
+              <AlertCircle size={18} />
+              {notice}
+              <button onClick={() => setNotice("")}>닫기</button>
+            </div>
+          )}
+          {page === "dashboard" && (
+            <>
+              <section className="hero">
+                <div>
+                  <span className="hero-tag">
+                    <Sparkles size={14} /> 생각을 정리하는 가장 좋은 시작
+                  </span>
+                  <h2>
+                    어떤 이야기를
+                    <br />
+                    함께 써볼까요?
+                  </h2>
+                  <p>
+                    AI 도구 리뷰부터 실용적인 사용법까지.
+                    <br />내 기준으로 다듬어 나만의 콘텐츠를 만드세요.
+                  </p>
+                  <button className="dark-button" onClick={() => edit(blank())}>
+                    첫 아이디어 적어보기 <ArrowRight size={16} />
+                  </button>
+                </div>
+                <div className="hero-art">
+                  <Sparkles className="art-star" size={180} strokeWidth={0.7} />
+                  <div className="paper">
+                    <div className="paper-icon">
+                      <PenLine size={23} />
+                    </div>
+                    <span className="paper-line wide" />
+                    <span className="paper-line" />
+                    <span className="paper-line wide" />
+                    <div className="paper-box">
+                      <CheckCircle2 size={17} /> 내가 확인한, 좋은 콘텐츠
+                    </div>
+                  </div>
+                  <div className="floating">
+                    <Sparkles size={16} /> AI와 쓰고, 나답게 발행
+                  </div>
+                </div>
+              </section>
+              <section className="stats">
+                {[
+                  [
+                    FileText,
+                    "작성 중인 원고",
+                    pending.length,
+                    "아이디어를 글로 다듬는 중",
+                    "purple",
+                  ],
+                  [
+                    ShieldCheck,
+                    "승인한 원고",
+                    approved.length,
+                    "최종 확인을 마친 콘텐츠",
+                    "amber",
+                  ],
+                  [
+                    Send,
+                    "발행한 글",
+                    published.length,
+                    "블로그에 전달한 이야기",
+                    "green",
+                  ],
+                  [
+                    Globe,
+                    "연결된 사이트",
+                    data.sites.length,
+                    "함께 운영하는 내 블로그",
+                    "blue",
+                  ],
+                ].map(([Icon, label, count, hint, color]) => (
+                  <div className="stat" key={label}>
+                    <div className={"stat-icon " + color}>
+                      <Icon size={19} />
+                    </div>
+                    <span>{label}</span>
+                    <strong>
+                      {count}
+                      <small>개</small>
+                    </strong>
+                    <p>{hint}</p>
+                  </div>
+                ))}
+              </section>
+              <div className="dashboard-grid">
+                <section className="panel">
+                  <div className="section-heading">
+                    <h3>
+                      최근 작업한 원고 <span>{data.drafts.length}</span>
+                    </h3>
+                    <button
+                      className="text-button"
+                      onClick={() => setPage("drafts")}
+                    >
+                      전체 보기 <ArrowRight size={14} />
+                    </button>
+                  </div>
+                  {data.drafts.length ? (
+                    data.drafts
+                      .slice(0, 5)
+                      .map((d) => (
+                        <DraftRow key={d.id} d={d} onClick={() => edit(d)} />
+                      ))
+                  ) : (
+                    <div className="empty">
+                      <div className="empty-icon">
+                        <FileText size={26} />
+                      </div>
+                      <h3>첫 번째 이야기를 기다리고 있어요</h3>
+                      <p>주제를 적거나 준비한 원고를 가져와 보세요.</p>
+                      <button
+                        className="text-button"
+                        onClick={() => edit(blank())}
+                      >
+                        새 원고 만들기 <ArrowRight size={14} />
+                      </button>
+                    </div>
+                  )}
+                </section>
+                <section className="panel flow-panel">
+                  <h3>좋은 글이 완성되는 과정</h3>
+                  {[
+                    [
+                      "01",
+                      "자료와 아이디어",
+                      "참고 자료와 전달할 내용을 정리해요.",
+                    ],
+                    [
+                      "02",
+                      "AI 초안 · 나의 편집",
+                      "글을 생성하거나 직접 작성해요.",
+                    ],
+                    [
+                      "03",
+                      "검토하고 승인",
+                      "출처와 최종 내용을 직접 확인해요.",
+                    ],
+                    [
+                      "04",
+                      "내 블로그에 발행",
+                      "승인한 버전만 사이트로 전달해요.",
+                    ],
+                  ].map(([n, t, p]) => (
+                    <div className="flow" key={n}>
+                      <span>{n}</span>
+                      <div>
+                        <b>{t}</b>
+                        <p>{p}</p>
+                      </div>
+                    </div>
+                  ))}
+                </section>
+              </div>
+              <div className="bottom-tip">
+                <ShieldCheck size={16} />
+                <span>
+                  초안은 자동으로 발행되지 않습니다. 최종 원고를 확인하고 승인한
+                  뒤 발행하세요.
+                </span>
+              </div>
+            </>
+          )}
+          {page === "drafts" && (
+            <section className="panel">
+              <div className="section-heading">
+                <h3>
+                  모든 원고 <span>{data.drafts.length}</span>
+                </h3>
+                <div className="search">
+                  <Search size={16} />
+                  <input
+                    placeholder="제목으로 검색"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+              {data.drafts
+                .filter((d) => d.title.includes(query))
+                .map((d) => (
+                  <DraftRow key={d.id} d={d} onClick={() => edit(d)} />
+                ))}
+              {!data.drafts.length && (
+                <div className="empty">
+                  <FileText size={30} />
+                  <h3>저장된 원고가 없습니다</h3>
+                  <p>새 글 작성에서 첫 원고를 만들어보세요.</p>
+                </div>
+              )}
+            </section>
+          )}
+          {page === "editor" && (
+            <div className="editor-grid">
+              <section className="panel editor">
+                <div className="editor-toolbar">
+                  <div className="tabs">
+                    <button
+                      className={tab === "write" ? "selected" : ""}
+                      onClick={() => setTab("write")}
+                    >
+                      <PenLine size={15} />
+                      편집
+                    </button>
+                    <button
+                      className={tab === "preview" ? "selected" : ""}
+                      onClick={() => setTab("preview")}
+                    >
+                      <BookOpen size={15} />
+                      미리보기
+                    </button>
+                  </div>
+                  <span className={"status " + (draft.status || "draft")}>
+                    {labels[draft.status] || "새 원고"}
+                  </span>
+                </div>
+                {tab === "write" ? (
+                  <>
+                    <input
+                      className="title-input"
+                      placeholder="이야기에 제목을 붙여주세요"
+                      value={draft.title}
+                      onChange={(e) => change("title", e.target.value)}
+                    />
+                    <textarea
+                      className="body-input"
+                      placeholder={
+                        "첫 문장을 적어보세요.\n\nAI로 초안을 만들려면 오른쪽에 주제와 참고 자료를 입력하세요.\n\n## 소제목\n빈 줄로 문단을 나눌 수 있습니다."
+                      }
+                      value={draft.body}
+                      onChange={(e) => change("body", e.target.value)}
+                    />
+                  </>
+                ) : (
+                  <article className="article">
+                    <h1>{draft.title || "제목 없는 원고"}</h1>
+                    {draft.body
+                      .split(/\n\n+/)
+                      .map((p, i) =>
+                        /^#{1,3} /.test(p) ? (
+                          <h2 key={i}>{p.replace(/^#{1,3} /, "")}</h2>
+                        ) : (
+                          <p key={i}>{p}</p>
+                        ),
+                      )}
+                    {!draft.body && <p>작성한 내용이 이곳에 표시됩니다.</p>}
+                  </article>
+                )}
+                <div className="editor-footer">
+                  <span>
+                    {draft.body.replace(/\s/g, "").length.toLocaleString()}자 ·
+                    공백 제외
+                  </span>
+                  <button
+                    disabled={
+                      busy ||
+                      ["published", "publishing", "uncertain"].includes(
+                        draft.status,
+                      )
+                    }
+                    className="secondary"
+                    onClick={() =>
+                      run(async () => {
+                        await save();
+                        setNotice("원고를 저장했습니다.");
+                      })
+                    }
+                  >
+                    <Save size={15} />
+                    원고 저장
+                  </button>
+                </div>
+              </section>
+              <div className="editor-side">
+                <section className="panel side-card">
+                  <h3>
+                    <Sparkles size={18} /> AI 작성 도우미
+                  </h3>
+                  <label>
+                    어떤 주제로 쓸까요?
+                    <input
+                      value={draft.topic}
+                      onChange={(e) => change("topic", e.target.value)}
+                      placeholder="예: AI 회의록 도구 선택 가이드"
+                    />
+                  </label>
+                  <label>
+                    글 유형
+                    <select
+                      value={draft.type}
+                      onChange={(e) => change("type", e.target.value)}
+                    >
+                      {types.map((t) => (
+                        <option key={t}>{t}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    참고 자료 · 직접 사용 메모
+                    <textarea
+                      rows={5}
+                      placeholder="확인한 사실과 출처를 붙여넣으세요. URL만 넣으면 페이지를 자동 수집하지 않습니다."
+                      value={draft.sources}
+                      onChange={(e) => change("sources", e.target.value)}
+                    />
+                  </label>
+                  <p className="hint">
+                    자료는 설정한 AI 서비스로 전송됩니다. 개인정보와 비밀키를
+                    넣지 마세요. 현재 버전은 웹 검색을 수행하지 않습니다.
+                  </p>
+                  <button
+                    className="primary full"
+                    disabled={
+                      busy ||
+                      !draft.topic.trim() ||
+                      ["published", "publishing", "uncertain"].includes(
+                        draft.status,
+                      )
+                    }
+                    onClick={() =>
+                      run(async () => {
+                        if (
+                          draft.body &&
+                          !confirm(
+                            "현재 본문을 AI 초안으로 교체할까요? 보존하려면 먼저 새 원고로 복사하세요.",
+                          )
+                        )
+                          return;
+                        const r = await api.generate(draft);
+                        setDraft((d) => ({
+                          ...d,
+                          title: r.title,
+                          body: r.body,
+                          reviewNotes: r.notes || "",
+                          generation: r.generation,
+                          approval: undefined,
+                          status: "draft",
+                        }));
+                        setChecked(false);
+                        setNotice(
+                          "초안 생성 완료 · 검토 메모: " +
+                            (r.notes || "출처와 내용을 직접 확인하세요."),
+                        );
+                      })
+                    }
+                  >
+                    <Sparkles size={16} />
+                    {busy ? "처리 중…" : "AI 초안 만들기"}
+                  </button>
+                </section>
+                <section className="panel side-card">
+                  <h3>
+                    <ShieldCheck size={18} /> 검토 및 발행
+                  </h3>
+                  <label>
+                    발행 사이트
+                    <select
+                      value={draft.siteId}
+                      onChange={(e) => change("siteId", e.target.value)}
+                    >
+                      <option value="">사이트 선택</option>
+                      {data.sites.map((s) => (
+                        <option value={s.id} key={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="review-note">
+                    출처·가격·기능·링크를 직접 확인하세요. AI 검토와 자동
+                    팩트체크는 아직 제공하지 않습니다.
+                  </div>
+                  {draft.reviewNotes && (
+                    <div
+                      className="review-note"
+                      style={{ marginTop: 10, whiteSpace: "pre-wrap" }}
+                    >
+                      <b>AI 검토 메모 (자기 보고)</b>
+                      <br />
+                      {draft.reviewNotes}
+                    </div>
+                  )}
+                  <label className="checkbox">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => setChecked(e.target.checked)}
+                    />
+                    최종 원고와 대상 사이트를 확인했습니다.
+                  </label>
+                  <button
+                    className="secondary full"
+                    disabled={
+                      busy ||
+                      !checked ||
+                      ["published", "publishing", "uncertain"].includes(
+                        draft.status,
+                      )
+                    }
+                    onClick={() =>
+                      run(async () => {
+                        const d = await save();
+                        const s = await api.approve(d.id);
+                        setData(s);
+                        setDraft(s.drafts.find((x) => x.id === d.id));
+                        setNotice(
+                          "이 버전의 원고를 승인했습니다. 실제 발행은 아래 버튼으로 진행하세요.",
+                        );
+                      })
+                    }
+                  >
+                    <Check size={16} />이 원고 승인
+                  </button>
+                  <button
+                    className="primary full publish"
+                    disabled={busy || draft.status !== "approved"}
+                    onClick={() =>
+                      run(async () => {
+                        const s = data.sites.find((s) => s.id === draft.siteId);
+                        if (
+                          !confirm(
+                            `“${s?.name}”에 “${draft.title}”을 공개 발행합니다. 진행할까요?`,
+                          )
+                        )
+                          return;
+                        const saved = await save();
+                        const next = await api.publish(saved.id);
+                        setData(next);
+                        setDraft(next.drafts.find((d) => d.id === saved.id));
+                        setNotice(
+                          "발행 완료. 원격 게시 주소를 발행 기록에 저장했습니다.",
+                        );
+                      })
+                    }
+                  >
+                    <Send size={16} />
+                    블로그에 공개 발행
+                  </button>
+                  {draft.publishedUrl && (
+                    <p className="hint">발행 주소: {draft.publishedUrl}</p>
+                  )}
+                  {draft.status === "uncertain" && (
+                    <button
+                      className="secondary full"
+                      onClick={() =>
+                        run(async () => {
+                          const url = promptResult();
+                          if (url === null) return;
+                          const s = await api.reconcile(draft.id, url);
+                          setData(s);
+                          setDraft(s.drafts.find((d) => d.id === draft.id));
+                        })
+                      }
+                    >
+                      사이트에서 확인 후 결과 정리
+                    </button>
+                  )}
+                  <button
+                    className="text-button"
+                    onClick={() =>
+                      edit({
+                        ...draft,
+                        id: undefined,
+                        title: draft.title + " (복사)",
+                        status: "draft",
+                        approval: undefined,
+                        publishedUrl: undefined,
+                      })
+                    }
+                  >
+                    새 원고로 복사
+                  </button>
+                </section>
+              </div>
+            </div>
+          )}
+          {page === "sites" && (
+            <div className="settings-grid">
+              <section className="panel padded">
+                <h3>연결한 사이트</h3>
+                {!data.sites.length && (
+                  <div className="empty">
+                    <Globe size={30} />
+                    <h3>첫 블로그를 연결하세요</h3>
+                    <p>WordPress와 Blogger를 지원합니다.</p>
+                  </div>
+                )}
+                {data.sites.map((s) => (
+                  <div className="site-row" key={s.id}>
+                    <div className="site-logo">
+                      {s.type === "wordpress" ? "W" : "B"}
+                    </div>
+                    <div>
+                      <b>{s.name}</b>
+                      <small>{s.url || "Blogger · " + s.blogId}</small>
+                      <small>
+                        {s.hasSecret ? "인증정보 저장됨" : "인증정보 없음"}
+                      </small>
+                    </div>
+                    <button
+                      className="text-button"
+                      onClick={() => setSite({ ...s, credential: "" })}
+                    >
+                      수정
+                    </button>
+                    <button
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() =>
+                        run(async () => {
+                          setData(await api.testSite(s.id));
+                          setNotice(
+                            "읽기 연결을 확인했습니다. 게시 권한은 실제 발행 시 확인합니다.",
+                          );
+                        })
+                      }
+                    >
+                      연결 확인
+                    </button>
+                  </div>
+                ))}
+              </section>
+              <section className="panel padded">
+                <h3>
+                  <Plus size={18} />
+                  {site.id ? "사이트 수정" : "사이트 추가"}
+                </h3>
+                <label>
+                  사이트 이름
+                  <input
+                    value={site.name}
+                    onChange={(e) => setSite({ ...site, name: e.target.value })}
+                    placeholder="나의 AI 블로그"
+                  />
+                </label>
+                <label>
+                  플랫폼
+                  <select
+                    value={site.type}
+                    onChange={(e) => setSite({ ...site, type: e.target.value })}
+                  >
+                    <option value="wordpress">
+                      WordPress (자체 호스팅 REST API)
+                    </option>
+                    <option value="blogger">Blogger / 블로그스팟</option>
+                  </select>
+                </label>
+                {site.type === "wordpress" ? (
+                  <>
+                    <label>
+                      사이트 주소
+                      <input
+                        placeholder="https://my-blog.com"
+                        value={site.url}
+                        onChange={(e) =>
+                          setSite({ ...site, url: e.target.value })
+                        }
+                      />
+                    </label>
+                    <label>
+                      사용자명
+                      <input
+                        value={site.username}
+                        onChange={(e) =>
+                          setSite({ ...site, username: e.target.value })
+                        }
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <label>
+                    블로그 ID
+                    <input
+                      value={site.blogId}
+                      onChange={(e) =>
+                        setSite({ ...site, blogId: e.target.value })
+                      }
+                      placeholder="Blogger 관리자 주소의 숫자 ID"
+                    />
+                  </label>
+                )}
+                <label>
+                  {site.type === "wordpress"
+                    ? "Application Password"
+                    : "Google OAuth 액세스 토큰"}
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={site.credential}
+                    onChange={(e) =>
+                      setSite({ ...site, credential: e.target.value })
+                    }
+                  />
+                </label>
+                <p className="hint">
+                  {site.type === "wordpress"
+                    ? "WordPress 사용자 프로필에서 발급한 애플리케이션 비밀번호를 사용하세요. 일반 로그인 비밀번호를 입력하지 마세요."
+                    : "현재는 수동 OAuth 토큰 연결 방식입니다. blogger 권한이 필요하며 토큰 만료 시 재등록해야 합니다. 자동 로그인·갱신은 후속 기능입니다."}{" "}
+                  인증정보는 데스크톱 운영체제 보안 저장소로 암호화합니다.
+                </p>
+                <button
+                  className="primary"
+                  disabled={busy || !site.name.trim()}
+                  onClick={() =>
+                    run(async () => {
+                      setData(await api.saveSite(site));
+                      setSite({
+                        name: "",
+                        type: "wordpress",
+                        url: "",
+                        username: "",
+                        blogId: "",
+                        credential: "",
+                      });
+                      setNotice(
+                        "사이트를 저장했습니다. 연결 확인을 실행하세요.",
+                      );
+                    })
+                  }
+                >
+                  <Plus size={16} />
+                  사이트 저장
+                </button>
+              </section>
+            </div>
+          )}
+          {page === "settings" && (
+            <>
+              <section className="panel padded ai-settings">
+                <h3>
+                  <Sparkles size={18} /> AI API 연결
+                </h3>
+                <p className="hint">
+                  OpenAI 호환 Chat Completions API를 사용합니다. 구독형 ChatGPT
+                  로그인과 별개이며 API 사용료가 발생할 수 있습니다. Codex CLI
+                  연결은 아직 지원하지 않습니다.
+                </p>
+                <div className="form-row">
+                  <label>
+                    API 기본 주소
+                    <input
+                      value={ai.endpoint}
+                      onChange={(e) =>
+                        setAi({ ...ai, endpoint: e.target.value })
+                      }
+                    />
+                  </label>
+                  <label>
+                    모델 ID
+                    <input
+                      value={ai.model}
+                      onChange={(e) => setAi({ ...ai, model: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    API 키 {data.ai.hasSecret ? "(저장됨)" : ""}
+                    <input
+                      type="password"
+                      value={ai.credential}
+                      onChange={(e) =>
+                        setAi({ ...ai, credential: e.target.value })
+                      }
+                      placeholder="변경할 때만 입력"
+                    />
+                  </label>
+                </div>
+                <button
+                  className="primary"
+                  disabled={busy}
+                  onClick={() =>
+                    run(async () => {
+                      setData(await api.saveAI(ai));
+                      setAi({ ...ai, credential: "" });
+                      setNotice("AI 설정을 저장했습니다.");
+                    })
+                  }
+                >
+                  연결 설정 저장
+                </button>
+              </section>
+              <section className="panel padded prompt-panel">
+                <div className="section-heading">
+                  <div>
+                    <h3>AI 블로그 편집 프롬프트</h3>
+                    <p className="hint">
+                      원칙은 유지하고, 내 블로그에 맞춰 조정하세요. 수정 내용은
+                      이후 생성부터 적용됩니다.
+                    </p>
+                  </div>
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() =>
+                      run(async () => {
+                        setData(await api.savePrompt(prompt));
+                        setNotice("프롬프트를 저장했습니다.");
+                      })
+                    }
+                  >
+                    <Save size={16} />
+                    프롬프트 저장
+                  </button>
+                </div>
+                <textarea
+                  className="prompt-input"
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                />
+              </section>
+            </>
+          )}
+        </main>
+        <footer>
+          내 생각에 AI의 도움을 더하다.
+          <span>로컬 우선 · 사람 승인 · 나만의 편집 기준</span>
+        </footer>
+      </div>
+    </div>
+  );
+}
+function promptResult() {
+  return window.prompt(
+    "사이트 관리자에서 먼저 확인하세요. 발행되었으면 게시 주소를 입력하세요. 게시되지 않은 것을 확인했다면 빈칸으로 확인하면 초안으로 돌아갑니다.",
+  );
+}
+function DraftRow({ d, onClick }) {
+  return (
+    <button className="draft-row" onClick={onClick}>
+      <span className="draft-icon">
+        <FileText size={19} />
+      </span>
+      <div>
+        <b>{d.title || "제목 없는 원고"}</b>
+        <small>
+          {d.type} · {new Date(d.updatedAt).toLocaleDateString("ko-KR")}
+        </small>
+      </div>
+      <span className={"status " + d.status}>{labels[d.status]}</span>
+      <ChevronRight size={16} />
+    </button>
+  );
+}
+createRoot(document.getElementById("root")).render(<App />);
