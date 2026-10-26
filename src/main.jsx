@@ -35,6 +35,7 @@ const blank = () => ({
   sources: "",
   siteId: "",
   disclosure: "",
+  sourceIds: [],
 });
 const types = [
   "도구 소개",
@@ -59,6 +60,7 @@ function App() {
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState(""),
     [query, setQuery] = useState(""),
+    [sourceUrls, setSourceUrls] = useState(""),
     [site, setSite] = useState({
       name: "",
       type: "wordpress",
@@ -66,6 +68,13 @@ function App() {
       username: "",
       blogId: "",
       credential: "",
+      profile: {
+        topic: "AI 도구와 업무 활용",
+        audience: "한국 직장인·개인 창작자",
+        tone: "차분하고 친절한 존댓말",
+        category: "",
+        instructions: "",
+      },
     }),
     [ai, setAi] = useState({
       endpoint: "https://api.openai.com/v1",
@@ -97,9 +106,13 @@ function App() {
       try {
         const s = await api.load();
         setData(s);
-        setDraft(
-          (current) => s.drafts.find((d) => d.id === current.id) || current,
-        );
+        setDraft((current) => {
+          const saved = s.drafts.find((d) => d.id === current.id);
+          return saved &&
+            ["published", "publishing", "uncertain"].includes(saved.status)
+            ? saved
+            : current;
+        });
       } catch {}
     } finally {
       setBusy(false);
@@ -117,7 +130,13 @@ function App() {
     setPage("editor");
   }
   function change(k, v) {
-    setDraft((d) => ({ ...d, [k]: v, approval: undefined, status: "draft" }));
+    setDraft((d) => ({
+      ...d,
+      [k]: v,
+      approval: undefined,
+      reviewCurrent: false,
+      status: "draft",
+    }));
     setChecked(false);
   }
   async function save() {
@@ -135,9 +154,14 @@ function App() {
   const published = data.drafts.filter((d) => d.status === "published"),
     pending = data.drafts.filter((d) => d.status === "draft"),
     approved = data.drafts.filter((d) => d.status === "approved");
+  const reviewBlocked =
+    (!!draft.generation && !draft.review) ||
+    (!!draft.review &&
+      (!draft.reviewCurrent || draft.review.verdict === "needs_changes"));
   const nav = [
     ["dashboard", LayoutDashboard, "대시보드"],
     ["drafts", FileText, "원고 보관함"],
+    ["sources", Library, "자료함"],
     ["editor", PenLine, "새 글 작성"],
     ["sites", Globe, "사이트 관리"],
     ["settings", Settings, "AI · 프롬프트"],
@@ -151,6 +175,7 @@ function App() {
       "작은 아이디어에서, 좋은 글까지.",
       "오늘의 콘텐츠 작업을 한곳에서 이어가세요.",
     ],
+    sources: ["자료함", "URL의 본문과 확인 시점을 보관하고 원고에 연결하세요."],
     drafts: ["원고 보관함", "아이디어부터 발행까지, 모든 원고의 기록입니다."],
     editor: [
       "글쓰기 스튜디오",
@@ -215,7 +240,7 @@ function App() {
         <div className="sidebar-bottom">
           <span className="dot" />
           {preview ? "브라우저 화면 확인 모드" : "데스크톱 · 로컬 저장"}
-          <small>AI Blog Studio · v0.1.1</small>
+          <small>AI Blog Studio · v0.2.0</small>
         </div>
       </aside>
       <div className="shell">
@@ -447,6 +472,64 @@ function App() {
               )}
             </section>
           )}
+          {page === "sources" && (
+            <section className="panel padded">
+              <h3>URL 자료 수집</h3>
+              <p className="hint">
+                공개 HTTPS 페이지를 한 번에 1~5개 읽습니다. 검색 엔진
+                탐색·로그인 페이지·PDF·자바스크립트 렌더링은 지원하지 않습니다.
+                수집은 사실 확인을 의미하지 않습니다.
+              </p>
+              <label>
+                자료 URL (줄마다 하나)
+                <textarea
+                  rows={3}
+                  value={sourceUrls}
+                  onChange={(e) => setSourceUrls(e.target.value)}
+                  placeholder="https://example.com/docs"
+                />
+              </label>
+              <button
+                className="primary"
+                disabled={busy || !sourceUrls.trim()}
+                onClick={() =>
+                  run(async () => {
+                    const r = await api.collectSources({ urls: sourceUrls });
+                    setData(r.state);
+                    setNotice(
+                      `자료 ${r.ids.length}건 수집 완료${r.errors.length ? " · " + r.errors.map((v) => v.url + ": " + v.message).join(" / ") : ""}`,
+                    );
+                    if (!r.errors.length) setSourceUrls("");
+                  })
+                }
+              >
+                {busy ? "수집 중…" : "URL 본문 수집"}
+              </button>
+              <div className="source-list">
+                {(data.sources || []).map((ref) => (
+                  <details className="source-card" key={ref.id}>
+                    <summary>
+                      <b>{ref.title}</b>
+                      <small>
+                        {new Date(ref.fetchedAt).toLocaleString("ko-KR")} ·{" "}
+                        {ref.text.length.toLocaleString()}자
+                        {ref.truncated ? " · 일부만 저장" : ""}
+                      </small>
+                    </summary>
+                    <p className="source-url">{ref.url}</p>
+                    <p className="source-text">{ref.text}</p>
+                    <p className="hint">내용 지문: {ref.contentHash}</p>
+                  </details>
+                ))}
+                {!data.sources?.length && (
+                  <p className="hint">
+                    수집한 자료가 없습니다. 직접 읽은 자료는 원고의 참고
+                    메모로도 추가할 수 있습니다.
+                  </p>
+                )}
+              </div>
+            </section>
+          )}
           {page === "editor" && (
             <div className="editor-grid">
               <section className="panel editor">
@@ -534,6 +617,29 @@ function App() {
                     <Sparkles size={18} /> AI 작성 도우미
                   </h3>
                   <label>
+                    글쓰기 기준 사이트
+                    <select
+                      value={draft.siteId}
+                      onChange={(e) => change("siteId", e.target.value)}
+                    >
+                      <option value="">공통 편집 기준 사용</option>
+                      {data.sites.map((s) => (
+                        <option value={s.id} key={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {draft.siteId && (
+                    <p className="hint">
+                      {data.sites.find((s) => s.id === draft.siteId)?.profile
+                        ?.audience || "기본 독자"}{" "}
+                      ·{" "}
+                      {data.sites.find((s) => s.id === draft.siteId)?.profile
+                        ?.tone || "친절한 존댓말"}
+                    </p>
+                  )}
+                  <label>
                     어떤 주제로 쓸까요?
                     <input
                       value={draft.topic}
@@ -556,14 +662,93 @@ function App() {
                     참고 자료 · 직접 사용 메모
                     <textarea
                       rows={5}
-                      placeholder="확인한 사실과 출처를 붙여넣으세요. URL만 넣으면 페이지를 자동 수집하지 않습니다."
+                      placeholder="직접 읽은 사실·사용 기록·조건을 적으세요. URL 본문은 아래 수집 기능을 사용하세요."
                       value={draft.sources}
                       onChange={(e) => change("sources", e.target.value)}
                     />
                   </label>
+                  <label>
+                    추가할 자료 URL
+                    <textarea
+                      rows={2}
+                      value={sourceUrls}
+                      onChange={(e) => setSourceUrls(e.target.value)}
+                      placeholder="공식 문서 URL을 줄마다 입력"
+                    />
+                  </label>
+                  <button
+                    className="secondary full"
+                    disabled={
+                      busy ||
+                      !sourceUrls.trim() ||
+                      ["published", "publishing", "uncertain"].includes(
+                        draft.status,
+                      )
+                    }
+                    onClick={() =>
+                      run(async () => {
+                        const r = await api.collectSources({
+                          urls: sourceUrls,
+                        });
+                        setData(r.state);
+                        const combined = [
+                          ...new Set([...(draft.sourceIds || []), ...r.ids]),
+                        ];
+                        if (combined.length > 8) {
+                          setNotice(
+                            "자료함에 저장했습니다. 원고에는 최대 8개 연결할 수 있으므로 보관 자료에서 직접 선택하세요.",
+                          );
+                          return;
+                        }
+                        change("sourceIds", combined);
+                        setNotice(
+                          `자료 ${r.ids.length}건 연결${r.errors.length ? " · " + r.errors.map((v) => v.message).join(" / ") : ""}`,
+                        );
+                        if (!r.errors.length) setSourceUrls("");
+                      })
+                    }
+                  >
+                    수집하고 원고에 연결
+                  </button>
+                  <details className="evidence-picker">
+                    <summary>
+                      보관 자료 선택 ({(draft.sourceIds || []).length}/8)
+                    </summary>
+                    {(data.sources || []).map((ref) => (
+                      <label className="checkbox" key={ref.id}>
+                        <input
+                          type="checkbox"
+                          checked={(draft.sourceIds || []).includes(ref.id)}
+                          disabled={
+                            busy ||
+                            ["published", "publishing", "uncertain"].includes(
+                              draft.status,
+                            )
+                          }
+                          onChange={(e) => {
+                            const ids = draft.sourceIds || [];
+                            if (e.target.checked && ids.length >= 8) {
+                              setNotice(
+                                "한 원고에 자료는 최대 8개 연결할 수 있습니다.",
+                              );
+                              return;
+                            }
+                            change(
+                              "sourceIds",
+                              e.target.checked
+                                ? [...ids, ref.id]
+                                : ids.filter((id) => id !== ref.id),
+                            );
+                          }}
+                        />
+                        {ref.title}
+                      </label>
+                    ))}
+                  </details>
                   <p className="hint">
                     자료는 설정한 AI 서비스로 전송됩니다. 개인정보와 비밀키를
-                    넣지 마세요. 현재 버전은 웹 검색을 수행하지 않습니다.
+                    넣지 마세요. 연결한 URL 자료와 메모가 함께 전송됩니다. 검색
+                    엔진 탐색은 수행하지 않습니다.
                   </p>
                   <button
                     className="primary full"
@@ -590,6 +775,8 @@ function App() {
                           body: r.body,
                           reviewNotes: r.notes || "",
                           generation: r.generation,
+                          review: undefined,
+                          reviewCurrent: false,
                           approval: undefined,
                           status: "draft",
                         }));
@@ -624,9 +811,98 @@ function App() {
                     </select>
                   </label>
                   <div className="review-note">
-                    출처·가격·기능·링크를 직접 확인하세요. AI 검토와 자동
-                    팩트체크는 아직 제공하지 않습니다.
+                    별도 AI 검토는 연결한 자료와 원고를 대조합니다. 검색을 통한
+                    독립적 사실 보증은 아니며, 최종 확인과 발행 승인은 사람이
+                    합니다.
                   </div>
+                  <button
+                    className="secondary full"
+                    disabled={
+                      busy ||
+                      !draft.title.trim() ||
+                      !draft.body.trim() ||
+                      ["published", "publishing", "uncertain"].includes(
+                        draft.status,
+                      )
+                    }
+                    onClick={() =>
+                      run(async () => {
+                        const d = await save();
+                        const next = await api.reviewDraft(d.id);
+                        setData(next);
+                        setDraft(next.drafts.find((v) => v.id === d.id));
+                        setChecked(false);
+                        setNotice(
+                          "별도 AI 검토 완료. 지적 사항과 사실 목록을 확인하세요.",
+                        );
+                      })
+                    }
+                  >
+                    {busy ? "검토 중…" : "별도 AI 검토 실행"}
+                  </button>
+                  <p className="hint">
+                    별도 생성 요청으로 API 사용료가 발생합니다. AI 초안은 검토
+                    후 승인할 수 있습니다.
+                  </p>
+                  {draft.review && (
+                    <div className="review-report">
+                      <b>
+                        {!draft.reviewCurrent
+                          ? "변경됨 · 재검토 필요"
+                          : draft.review.verdict === "needs_changes"
+                            ? "수정 필요"
+                            : "사람 검토 가능"}
+                      </b>
+                      <p>{draft.review.summary}</p>
+                      <small>
+                        {draft.review.model} ·{" "}
+                        {new Date(draft.review.at).toLocaleString("ko-KR")}
+                      </small>
+                      {draft.review.findings.map((f, i) => (
+                        <div className={"finding " + f.severity} key={i}>
+                          <b>
+                            {
+                              {
+                                blocker: "차단",
+                                warning: "주의",
+                                suggestion: "제안",
+                              }[f.severity]
+                            }
+                          </b>
+                          <p>{f.message}</p>
+                          {f.quote && <blockquote>{f.quote}</blockquote>}
+                          {f.fix && <p>수정 방향: {f.fix}</p>}
+                        </div>
+                      ))}
+                      <details>
+                        <summary>
+                          사실 목록 ({draft.review.claims.length})
+                        </summary>
+                        {draft.review.claims.map((c) => (
+                          <div className="finding" key={c.id}>
+                            <b>
+                              {c.id} ·{" "}
+                              {
+                                {
+                                  supported: "자료가 뒷받침함",
+                                  unsupported: "자료와 불일치",
+                                  uncertain: "확인 필요",
+                                }[c.status]
+                              }
+                            </b>
+                            <p>{c.claim}</p>
+                            <p>{c.reason}</p>
+                            {c.sourceIds.map((id) => (
+                              <p className="source-url" key={id}>
+                                {data.sources?.find((s) => s.id === id)?.url ||
+                                  id}
+                              </p>
+                            ))}
+                          </div>
+                        ))}
+                      </details>
+                    </div>
+                  )}
                   {draft.reviewNotes && (
                     <div
                       className="review-note"
@@ -643,13 +919,16 @@ function App() {
                       checked={checked}
                       onChange={(e) => setChecked(e.target.checked)}
                     />
-                    최종 원고와 대상 사이트를 확인했습니다.
+                    {draft.review
+                      ? "AI 검토 내용과 최종 원고·대상 사이트를 확인했습니다."
+                      : "AI 검토 미실행 상태에서 원고와 출처를 직접 검토했습니다."}
                   </label>
                   <button
                     className="secondary full"
                     disabled={
                       busy ||
                       !checked ||
+                      reviewBlocked ||
                       ["published", "publishing", "uncertain"].includes(
                         draft.status,
                       )
@@ -670,7 +949,9 @@ function App() {
                   </button>
                   <button
                     className="primary full publish"
-                    disabled={busy || draft.status !== "approved"}
+                    disabled={
+                      busy || draft.status !== "approved" || reviewBlocked
+                    }
                     onClick={() =>
                       run(async () => {
                         const s = data.sites.find((s) => s.id === draft.siteId);
@@ -836,6 +1117,49 @@ function App() {
                     />
                   </label>
                 )}
+                <fieldset className="profile-fields">
+                  <legend>이 블로그의 글쓰기 기준</legend>
+                  {[
+                    ["topic", "주요 주제"],
+                    ["audience", "대상 독자"],
+                    ["tone", "말투"],
+                    ["category", "기본 콘텐츠 분류 (편집용)"],
+                  ].map(([key, label]) => (
+                    <label key={key}>
+                      {label}
+                      <input
+                        value={site.profile?.[key] || ""}
+                        onChange={(e) =>
+                          setSite({
+                            ...site,
+                            profile: { ...site.profile, [key]: e.target.value },
+                          })
+                        }
+                      />
+                    </label>
+                  ))}
+                  <label>
+                    추가 편집 지침
+                    <textarea
+                      rows={4}
+                      value={site.profile?.instructions || ""}
+                      placeholder="예: 초보자도 따라 할 수 있는 업무 예시를 포함하세요."
+                      onChange={(e) =>
+                        setSite({
+                          ...site,
+                          profile: {
+                            ...site.profile,
+                            instructions: e.target.value,
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                  <p className="hint">
+                    글 생성과 별도 검토에 적용됩니다. 분류는 현재 편집 기준이며
+                    원격 카테고리 지정 기능은 아닙니다.
+                  </p>
+                </fieldset>
                 <label>
                   {site.type === "wordpress"
                     ? "Application Password"

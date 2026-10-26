@@ -38,7 +38,9 @@ test("데스크톱 저장→승인→변경 무효화→발행·불확실 결과
         ? electron
         : n === "./core.cjs"
           ? require("../electron/core.cjs")
-          : require(n),
+          : n.startsWith("./")
+            ? require(path.join(mainDir, n))
+            : require(n),
     __dirname: mainDir,
     process,
     Buffer,

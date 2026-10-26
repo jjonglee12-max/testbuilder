@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld("studio", {
   listAIModels: (s) => ipcRenderer.invoke("listAIModels", s),
   testAI: (s) => ipcRenderer.invoke("testAI", s),
   saveAI: (s) => ipcRenderer.invoke("saveAI", s),
+  collectSources: (s) => ipcRenderer.invoke("collectSources", s),
+  reviewDraft: (id) => ipcRenderer.invoke("reviewDraft", id),
   generate: (d) => ipcRenderer.invoke("generate", d),
   approve: (id) => ipcRenderer.invoke("approve", id),
   publish: (id) => ipcRenderer.invoke("publish", id),

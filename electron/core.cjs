@@ -33,6 +33,8 @@ function fingerprint(d, site) {
           username: site.username,
         },
         disclosure: d.disclosure,
+        sources: d.sources || "",
+        sourceIds: d.sourceIds || [],
       }),
     )
     .digest("hex");

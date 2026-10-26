@@ -1,6 +1,7 @@
 const key = "ai-blog-studio-preview-v1";
 const seed = {
   drafts: [],
+  sources: [],
   sites: [],
   logs: [],
   ai: { endpoint: "https://api.openai.com/v1", model: "gpt-4.1-mini" },
@@ -39,7 +40,8 @@ export const api = window.studio || {
         "브라우저에서는 인증정보를 저장하지 않습니다. 데스크톱 앱을 실행하세요.",
       );
     const s = read();
-    s.sites.push({ ...site, id: crypto.randomUUID() });
+    const value = { ...site, id: site.id || crypto.randomUUID() };
+    s.sites = [value, ...s.sites.filter((v) => v.id !== value.id)];
     return write(s);
   },
   savePrompt: async (prompt) => {
@@ -60,6 +62,12 @@ export const api = window.studio || {
   },
   saveAI: async () => {
     throw Error("AI 연결은 데스크톱 앱에서 설정하세요.");
+  },
+  collectSources: async () => {
+    throw Error("URL 수집은 데스크톱 앱에서 사용하세요.");
+  },
+  reviewDraft: async () => {
+    throw Error("별도 AI 검토는 데스크톱 앱에서 사용하세요.");
   },
   generate: async () => {
     throw Error("AI 생성은 데스크톱 앱에서 연결 후 사용할 수 있습니다.");

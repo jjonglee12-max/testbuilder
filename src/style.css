@@ -930,3 +930,93 @@ button.workspace {
 .ai-settings > button {
   margin: 6px 8px 4px 0;
 }
+
+.source-list {
+  margin-top: 24px;
+}
+.source-card {
+  border-top: 1px solid #ecebf2;
+  padding: 18px 0;
+}
+.source-card summary {
+  cursor: pointer;
+  font-size: 13px;
+}
+.source-card small {
+  display: block;
+  color: #9893a3;
+  font-size: 10px;
+  margin-top: 6px;
+}
+.source-url {
+  font-size: 10px;
+  overflow-wrap: anywhere;
+  color: #8c75b2;
+}
+.source-text {
+  font-size: 12px;
+  white-space: pre-wrap;
+  line-height: 1.9;
+  max-height: 360px;
+  overflow: auto;
+  background: #f8f8fb;
+  padding: 15px;
+  border-radius: 8px;
+}
+.evidence-picker {
+  font-size: 11px;
+  margin-top: 16px;
+}
+.evidence-picker summary {
+  cursor: pointer;
+  color: #8d78ac;
+}
+.evidence-picker label {
+  font-size: 10px;
+}
+.review-report {
+  font-size: 11px;
+  line-height: 1.8;
+  margin-top: 14px;
+  padding: 12px;
+  background: #faf9fd;
+  border: 1px solid #ece7f4;
+  border-radius: 8px;
+}
+.review-report small {
+  font-size: 9px;
+  color: #999;
+}
+.finding {
+  margin-top: 10px;
+  border-top: 1px solid #e8e4ee;
+  padding-top: 10px;
+}
+.finding p {
+  margin: 5px 0;
+}
+.finding.blocker > b {
+  color: #b35454;
+}
+.finding.warning > b {
+  color: #b0883d;
+}
+.finding blockquote {
+  margin: 5px 0;
+  padding-left: 8px;
+  border-left: 2px solid #d9cce9;
+  color: #999;
+}
+.profile-fields {
+  border: 1px solid #e9e5f0;
+  border-radius: 9px;
+  margin-top: 22px;
+  padding: 14px;
+}
+.profile-fields legend {
+  font-size: 12px;
+  color: #8b74b0;
+}
+.profile-fields label {
+  margin: 9px 0;
+}
