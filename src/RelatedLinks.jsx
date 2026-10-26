@@ -53,7 +53,24 @@ export function RelatedLinks({ draft, api, run, onChange, onNotice, busy }) {
                   }
                   const title = p.title.replace(/[\[\]]/g, "");
                   const url = p.url.replace(/\(/g, "%28").replace(/\)/g, "%29");
-                  onChange(draft.body + `\n\n관련 글: [${title}](${url})`);
+                  const esc = (s) =>
+                    String(s).replace(
+                      /[&<>"']/g,
+                      (c) =>
+                        ({
+                          "&": "&amp;",
+                          "<": "&lt;",
+                          ">": "&gt;",
+                          '"': "&quot;",
+                          "'": "&#39;",
+                        })[c],
+                    );
+                  onChange(
+                    draft.body +
+                      (draft.format === "html"
+                        ? `\n<p>관련 글: <a href="${esc(url)}">${esc(title)}</a></p>`
+                        : `\n\n관련 글: [${title}](${url})`),
+                  );
                 }}
               >
                 본문 끝에 내부 링크 넣기

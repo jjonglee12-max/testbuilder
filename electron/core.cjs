@@ -72,6 +72,15 @@ function fingerprint(d, site) {
         tagIds: d.tagIds || [],
         labels: d.labels || [],
         publication: d.publication || { mode: "now" },
+        format: d.format || "markdown",
+        updateTarget: d.updateTarget
+          ? {
+              remoteId: d.updateTarget.remoteId,
+              siteId: d.updateTarget.siteId,
+              siteKey: d.updateTarget.siteKey,
+              hash: d.updateTarget.hash,
+            }
+          : undefined,
       }),
     )
     .digest("hex");
@@ -92,6 +101,7 @@ function assertApproved(d, site) {
     throw Error("최종 원고를 다시 승인하세요.");
   if (
     d.status === "published" ||
+    d.status === "updated" ||
     d.status === "publishing" ||
     ["uncertain", "queued", "remote_scheduled", "missed"].includes(d.status)
   )

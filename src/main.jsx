@@ -31,6 +31,9 @@ import { Classification } from "./Classification";
 import { Planning } from "./Planning";
 import { PostLibrary } from "./PostLibrary";
 import { RelatedLinks } from "./RelatedLinks";
+import { BackupPage, HistoryPanel } from "./Recovery";
+import { HTMLPreview, UpdatePanel } from "./UpdatePanel";
+import { DiffView } from "./DiffView";
 const blank = () => ({
   title: "",
   body: "",
@@ -58,6 +61,8 @@ const labels = {
   draft: "작성 중",
   approved: "승인 완료",
   published: "발행 완료",
+  updated: "기존 글 반영 완료",
+  conflict: "원격 변경 충돌",
   uncertain: "결과 확인 필요",
   publishing: "처리 중",
   queued: "로컬 예약",
@@ -152,6 +157,8 @@ function App() {
           return saved &&
             [
               "published",
+              "updated",
+              "conflict",
               "publishing",
               "uncertain",
               "queued",
@@ -172,16 +179,20 @@ function App() {
     return s;
   }
   function edit(d) {
-    if (busy) return;
     setDraft({ ...d });
     setChecked(false);
     setTab("write");
     setPage("editor");
   }
   function change(k, v) {
+    if (draft.updateTarget && k === "siteId") {
+      setNotice("기존 글 수정 대상은 변경할 수 없습니다.");
+      return;
+    }
     if (
       [
         "published",
+        "updated",
         "publishing",
         "uncertain",
         "queued",
@@ -240,6 +251,7 @@ function App() {
     ["editor", PenLine, "새 글 작성"],
     ["sites", Globe, "사이트 관리"],
     ["settings", Settings, "AI · 프롬프트"],
+    ["backup", Save, "백업 · 복원"],
   ];
   const titles = {
     workspace: [
@@ -250,6 +262,7 @@ function App() {
       "작은 아이디어에서, 좋은 글까지.",
       "오늘의 콘텐츠 작업을 한곳에서 이어가세요.",
     ],
+    backup: ["백업과 복원", "원고·이미지·출처·설정과 변경 이력을 보관하세요."],
     planning: [
       "주제 기획과 일괄 준비",
       "주제를 모으고 자료 수집·초안·검토를 순서대로 준비하세요.",
@@ -329,7 +342,7 @@ function App() {
         <div className="sidebar-bottom">
           <span className="dot" />
           {preview ? "브라우저 화면 확인 모드" : "데스크톱 · 로컬 저장"}
-          <small>AI Blog Studio · v0.4.0</small>
+          <small>AI Blog Studio · v0.5.0</small>
         </div>
       </aside>
       <div className="shell">
@@ -363,6 +376,14 @@ function App() {
               <AlertCircle size={16} />
               화면 확인 모드입니다. 원고 편집은 가능하며, AI 연결·승인·실제
               발행은 데스크톱 앱에서 사용합니다.
+            </div>
+          )}
+          {data.recovery && page !== "backup" && (
+            <div className="notice" role="alert">
+              {data.recovery.message}
+              <button onClick={() => setPage("backup")}>
+                백업 · 복원 열기
+              </button>
             </div>
           )}
           {notice && (
@@ -561,6 +582,30 @@ function App() {
               )}
             </section>
           )}
+          {page === "backup" && (
+            <>
+              <BackupPage
+                data={data}
+                api={api}
+                run={run}
+                onState={setData}
+                onNotice={setNotice}
+                busy={busy}
+              />
+              <section className="panel padded" style={{ marginTop: 20 }}>
+                <HistoryPanel
+                  draft={null}
+                  data={data}
+                  api={api}
+                  run={run}
+                  onState={setData}
+                  onOpen={edit}
+                  onNotice={setNotice}
+                  busy={busy}
+                />
+              </section>
+            </>
+          )}
           {page === "planning" && (
             <Planning
               data={data}
@@ -575,6 +620,7 @@ function App() {
           )}
           {page === "posts" && (
             <PostLibrary
+              onOpen={edit}
               data={data}
               api={api}
               run={run}
@@ -751,12 +797,27 @@ function App() {
                       미리보기
                     </button>
                     <button
+                      disabled={draft.format === "html"}
                       className={tab === "images" ? "selected" : ""}
                       onClick={() => setTab("images")}
                     >
                       <Library size={15} />
                       이미지 ({draft.images?.length || 0})
                     </button>
+                    <button
+                      className={tab === "history" ? "selected" : ""}
+                      onClick={() => setTab("history")}
+                    >
+                      변경 이력
+                    </button>
+                    {draft.updateTarget && (
+                      <button
+                        className={tab === "compare" ? "selected" : ""}
+                        onClick={() => setTab("compare")}
+                      >
+                        원문과 비교
+                      </button>
+                    )}
                   </div>
                   <span className={"status " + (draft.status || "draft")}>
                     {labels[draft.status] || "새 원고"}
@@ -764,12 +825,19 @@ function App() {
                 </div>
                 {tab === "write" ? (
                   <>
+                    {draft.format === "html" && (
+                      <p className="hint">
+                        HTML 원문 편집입니다. 태그와 블록 주석을 유지하고, 수정
+                        후 원문 비교·미리보기를 확인하세요.
+                      </p>
+                    )}
                     <input
                       className="title-input"
                       readOnly={
                         busy ||
                         [
                           "published",
+                          "updated",
                           "publishing",
                           "uncertain",
                           "queued",
@@ -787,6 +855,7 @@ function App() {
                         busy ||
                         [
                           "published",
+                          "updated",
                           "publishing",
                           "uncertain",
                           "queued",
@@ -801,6 +870,30 @@ function App() {
                       onChange={(e) => change("body", e.target.value)}
                     />
                   </>
+                ) : tab === "history" ? (
+                  <HistoryPanel
+                    draft={draft}
+                    data={data}
+                    api={api}
+                    run={run}
+                    onState={setData}
+                    onOpen={edit}
+                    onNotice={setNotice}
+                    busy={busy}
+                  />
+                ) : tab === "compare" && draft.updateTarget ? (
+                  <div className="history-panel">
+                    <p className="hint">
+                      HTML 줄 위치 기준 비교입니다. 발행일·기존 대표 이미지는
+                      반영 요청에서 변경하지 않습니다.
+                    </p>
+                    <DiffView
+                      before={draft.updateTarget.body}
+                      after={draft.body}
+                      beforeTitle="불러온 원격 원문"
+                      afterTitle="현재 수정안"
+                    />
+                  </div>
                 ) : tab === "images" ? (
                   <ImageEditor
                     draft={draft}
@@ -832,6 +925,11 @@ function App() {
                       })
                     }
                   />
+                ) : draft.format === "html" ? (
+                  <div className="article">
+                    <h1>{draft.title}</h1>
+                    <HTMLPreview body={draft.body} api={api} />
+                  </div>
                 ) : (
                   <article className="article">
                     <h1>{draft.title || "제목 없는 원고"}</h1>
@@ -871,6 +969,7 @@ function App() {
                       busy ||
                       [
                         "published",
+                        "updated",
                         "publishing",
                         "uncertain",
                         "queued",
@@ -963,6 +1062,7 @@ function App() {
                       !sourceUrls.trim() ||
                       [
                         "published",
+                        "updated",
                         "publishing",
                         "uncertain",
                         "queued",
@@ -1008,6 +1108,7 @@ function App() {
                             busy ||
                             [
                               "published",
+                              "updated",
                               "publishing",
                               "uncertain",
                               "queued",
@@ -1045,8 +1146,10 @@ function App() {
                     disabled={
                       busy ||
                       !draft.topic.trim() ||
+                      draft.format === "html" ||
                       [
                         "published",
+                        "updated",
                         "publishing",
                         "uncertain",
                         "queued",
@@ -1063,7 +1166,8 @@ function App() {
                           )
                         )
                           return;
-                        const r = await api.generate(draft);
+                        const input = draft.body ? await save() : draft;
+                        const r = await api.generate(input);
                         setDraft((d) => ({
                           ...d,
                           title: r.title,
@@ -1087,6 +1191,19 @@ function App() {
                     {busy ? "처리 중…" : "AI 초안 만들기"}
                   </button>
                 </section>
+                {draft.updateTarget && (
+                  <UpdatePanel
+                    draft={draft}
+                    api={api}
+                    run={run}
+                    onState={setData}
+                    onDraft={setDraft}
+                    onOpen={edit}
+                    onSave={save}
+                    onNotice={setNotice}
+                    busy={busy}
+                  />
+                )}
                 <RelatedLinks
                   draft={draft}
                   api={api}
@@ -1121,6 +1238,7 @@ function App() {
                       busy ||
                       [
                         "published",
+                        "updated",
                         "publishing",
                         "uncertain",
                         "queued",
@@ -1153,6 +1271,7 @@ function App() {
                       !draft.body.trim() ||
                       [
                         "published",
+                        "updated",
                         "publishing",
                         "uncertain",
                         "queued",
@@ -1252,6 +1371,7 @@ function App() {
                     발행 방식
                     <select
                       aria-label="발행 방식"
+                      disabled={draft.format === "html"}
                       value={draft.publication?.mode || "now"}
                       onChange={(e) =>
                         change("publication", {
@@ -1312,8 +1432,10 @@ function App() {
                       busy ||
                       !checked ||
                       reviewBlocked ||
+                      draft.updateConflict ||
                       [
                         "published",
+                        "updated",
                         "publishing",
                         "uncertain",
                         "queued",
@@ -1338,40 +1460,52 @@ function App() {
                   <button
                     className="primary full publish"
                     disabled={
-                      busy || draft.status !== "approved" || reviewBlocked
+                      busy ||
+                      draft.status !== "approved" ||
+                      reviewBlocked ||
+                      draft.updateConflict
                     }
                     onClick={() =>
                       run(async () => {
                         const s = data.sites.find((s) => s.id === draft.siteId);
                         if (
                           !confirm(
-                            draft.publication?.mode &&
-                              draft.publication.mode !== "now"
-                              ? `“${s?.name}”에 “${draft.title}”을 ${koreanTime(draft.publication.at)}에 ${draft.publication.mode === "remote" ? "플랫폼 예약 등록" : "로컬 예약"}합니다. 진행할까요?`
-                              : `“${s?.name}”에 “${draft.title}”을 공개 발행합니다. 진행할까요?`,
+                            draft.updateTarget
+                              ? `기존 글 “${draft.title}” (ID ${draft.updateTarget.remoteId})에 수정안을 반영합니다. 원문과 비교를 확인했나요?`
+                              : draft.publication?.mode &&
+                                  draft.publication.mode !== "now"
+                                ? `“${s?.name}”에 “${draft.title}”을 ${koreanTime(draft.publication.at)}에 ${draft.publication.mode === "remote" ? "플랫폼 예약 등록" : "로컬 예약"}합니다. 진행할까요?`
+                                : `“${s?.name}”에 “${draft.title}”을 공개 발행합니다. 진행할까요?`,
                           )
                         )
                           return;
                         const saved = await save();
-                        const next = await (saved.publication?.mode &&
-                        saved.publication.mode !== "now"
-                          ? api.scheduleDraft(saved.id)
-                          : api.publish(saved.id));
+                        const next = await (saved.updateTarget
+                          ? api.applyPostUpdate(saved.id)
+                          : saved.publication?.mode &&
+                              saved.publication.mode !== "now"
+                            ? api.scheduleDraft(saved.id)
+                            : api.publish(saved.id));
                         setData(next);
                         setDraft(next.drafts.find((d) => d.id === saved.id));
                         setNotice(
-                          saved.publication?.mode &&
-                            saved.publication.mode !== "now"
-                            ? "예약 등록 결과를 확인하세요. 발행 일정에서 관리할 수 있습니다."
-                            : "발행 완료. 원격 게시 주소를 저장했습니다.",
+                          saved.updateTarget
+                            ? "기존 글 수정 결과를 확인하세요."
+                            : saved.publication?.mode &&
+                                saved.publication.mode !== "now"
+                              ? "예약 등록 결과를 확인하세요. 발행 일정에서 관리할 수 있습니다."
+                              : "발행 완료. 원격 게시 주소를 저장했습니다.",
                         );
                       })
                     }
                   >
                     <Send size={16} />
-                    {draft.publication?.mode && draft.publication.mode !== "now"
-                      ? "승인한 원고 예약 등록"
-                      : "블로그에 공개 발행"}
+                    {draft.updateTarget
+                      ? "기존 글에 수정 반영"
+                      : draft.publication?.mode &&
+                          draft.publication.mode !== "now"
+                        ? "승인한 원고 예약 등록"
+                        : "블로그에 공개 발행"}
                   </button>
                   {draft.deliveryError && (
                     <div className="review-note">{draft.deliveryError}</div>
@@ -1423,6 +1557,7 @@ function App() {
                     <p className="hint">발행 주소: {draft.publishedUrl}</p>
                   )}
                   {draft.status === "uncertain" &&
+                    !draft.updateTarget &&
                     !(
                       draft.remote?.id && draft.publication?.mode === "remote"
                     ) && (
@@ -1441,25 +1576,27 @@ function App() {
                         사이트에서 확인 후 결과 정리
                       </button>
                     )}
-                  <button
-                    className="text-button"
-                    onClick={() =>
-                      edit({
-                        ...draft,
-                        id: undefined,
-                        title: draft.title + " (복사)",
-                        status: "draft",
-                        approval: undefined,
-                        publishedUrl: undefined,
-                        publication: { mode: "now" },
-                        remote: undefined,
-                        deliveryError: undefined,
-                        deliveryPhase: undefined,
-                      })
-                    }
-                  >
-                    새 원고로 복사
-                  </button>
+                  {draft.format !== "html" && (
+                    <button
+                      className="text-button"
+                      onClick={() =>
+                        edit({
+                          ...draft,
+                          id: undefined,
+                          title: draft.title + " (복사)",
+                          status: "draft",
+                          approval: undefined,
+                          publishedUrl: undefined,
+                          publication: { mode: "now" },
+                          remote: undefined,
+                          deliveryError: undefined,
+                          deliveryPhase: undefined,
+                        })
+                      }
+                    >
+                      새 원고로 복사
+                    </button>
+                  )}
                 </section>
               </div>
             </div>
@@ -1891,6 +2028,7 @@ function ImageEditor({ draft, media, busy, onChange, onImport, onError }) {
     busy ||
     [
       "published",
+      "updated",
       "publishing",
       "uncertain",
       "queued",

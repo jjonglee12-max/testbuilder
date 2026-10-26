@@ -4,6 +4,7 @@ const {
   ipcMain,
   safeStorage,
   nativeImage,
+  dialog,
 } = require("electron");
 const { setInterval } = require("node:timers");
 const {
@@ -34,7 +35,9 @@ const {
 } = require("./editorial.cjs");
 const catalogTools = require("./catalog.cjs");
 const { installPlanner } = require("./planner.cjs");
-let state, file;
+const { createStorage } = require("./storage.cjs");
+const { installUpdates, validateHTML } = require("./updates.cjs");
+let state, file, storage;
 function assertBatchIdle() {
   if (["running", "stopping"].includes(state?.batch?.status))
     throw Error(
@@ -102,6 +105,7 @@ function persist() {
     mode: 0o600,
   });
   fs.renameSync(file + ".tmp", file);
+  storage?.pruneHistory();
 }
 function publicState() {
   return {
@@ -161,7 +165,11 @@ async function request(url, options = {}, withMeta = false) {
   }
   const data = await r.json();
   return withMeta
-    ? { data, totalPages: r.headers?.get("x-wp-totalpages") }
+    ? {
+        data,
+        totalPages: r.headers?.get("x-wp-totalpages"),
+        etag: r.headers?.get("etag"),
+      }
     : data;
 }
 function siteRequest(s, publish = false, d) {
@@ -317,6 +325,10 @@ async function performPublish(id, { remote = false, queued = false } = {}) {
   assertDraftIdle(id);
   const d = find(id),
     s = state.sites.find((x) => x.id === d.siteId);
+  if (d.updateTarget)
+    throw Error(
+      "기존 글 수정본은 기존 글에 반영 버튼을 사용하세요. 새 글로 발행하지 않았습니다.",
+    );
   if (queued && d.status !== "queued")
     throw Error("로컬 예약 상태가 변경되었습니다.");
   assertApproved(queued ? { ...d, status: "approved" } : d, s);
@@ -475,20 +487,43 @@ app.on("second-instance", () => {
 if (ownsInstance)
   app.whenReady().then(() => {
     file = path.join(app.getPath("userData"), "studio.json");
-    state = fs.existsSync(file)
-      ? JSON.parse(fs.readFileSync(file, "utf8"))
-      : {
-          drafts: [],
-          sites: [],
-          logs: [],
-          ai: { endpoint: "https://api.openai.com/v1", model: "gpt-4.1-mini" },
-          prompt: fs.readFileSync(
-            path.join(__dirname, "../prompts/ai-blog-v1.md"),
-            "utf8",
-          ),
-        };
+    let saved, recovery;
+    try {
+      saved = fs.existsSync(file)
+        ? JSON.parse(fs.readFileSync(file, "utf8"))
+        : null;
+      if (
+        saved &&
+        (!Array.isArray(saved.drafts) ||
+          !Array.isArray(saved.sites) ||
+          !saved.ai ||
+          typeof saved.ai !== "object")
+      )
+        throw Error("저장 데이터 구조 오류");
+    } catch (e) {
+      saved = null;
+      const preserved = file + ".broken-" + Date.now();
+      fs.copyFileSync(file, preserved);
+      recovery = {
+        message:
+          "저장 데이터를 읽지 못해 원본을 보존했습니다. 백업·복원에서 복구하세요.",
+        file: path.basename(preserved),
+      };
+    }
+    state = saved || {
+      drafts: [],
+      sites: [],
+      logs: [],
+      ai: { endpoint: "https://api.openai.com/v1", model: "gpt-4.1-mini" },
+      prompt: fs.readFileSync(
+        path.join(__dirname, "../prompts/ai-blog-v1.md"),
+        "utf8",
+      ),
+    };
     for (const d of state.drafts)
       if (d.status === "publishing") d.status = "uncertain";
+    state.revisions ||= [];
+    if (recovery) state.recovery = recovery;
     state.sources ||= [];
     state.media ||= [];
     state.catalogs ||= {};
@@ -529,6 +564,29 @@ if (ownsInstance)
       }
     }
     state.workspace ||= { name: "개인 워크스페이스" };
+    storage = createStorage({
+      getState: () => state,
+      replaceState: (next) => {
+        const old = state;
+        state = next;
+        try {
+          persist();
+        } catch (e) {
+          state = old;
+          throw e;
+        }
+      },
+      persist,
+      dir: path.dirname(file),
+      siteIdentity,
+      assertIdle: () => {
+        assertBatchIdle();
+        if (
+          state.drafts.some((d) => ["publishing", "queued"].includes(d.status))
+        )
+          throw Error("실행 중 발행과 로컬 예약을 먼저 중지하세요.");
+      },
+    });
     persist();
     ipcMain.handle("saveWorkspace", (_, input) => {
       const name = String(input.name || "").trim();
@@ -547,6 +605,7 @@ if (ownsInstance)
         [
           "publishing",
           "published",
+          "updated",
           "uncertain",
           "queued",
           "remote_scheduled",
@@ -554,8 +613,23 @@ if (ownsInstance)
         ].includes(old.status)
       )
         throw Error("발행 내역은 수정할 수 없습니다. 새 원고로 복사하세요.");
+      const format = old?.format || context.format || "markdown",
+        target = old?.updateTarget || context.updateTarget;
+      if (target && input.siteId !== target.siteId)
+        throw Error("기존 글 수정본의 사이트는 변경할 수 없습니다.");
+      if (format === "html") {
+        validateHTML(input.body || "");
+        if (input.images?.length)
+          throw Error("HTML 수정본 이미지는 원문 URL로 편집하세요.");
+        if (publication(input.publication).mode !== "now")
+          throw Error("기존 글 수정본은 즉시 반영만 지원합니다.");
+      }
       const d = {
         id: old?.id || randomUUID(),
+        format,
+        updateTarget: target,
+        updateConflict: old?.updateConflict,
+        updateNotes: String(input.updateNotes || ""),
         title: String(input.title || ""),
         body: String(input.body || ""),
         topic: String(input.topic || ""),
@@ -600,8 +674,10 @@ if (ownsInstance)
         d.approval = old.approval;
         d.status = "approved";
       }
+      if (old) storage.record(old, "변경 전");
       state.drafts = state.drafts.filter((x) => x.id !== d.id);
       state.drafts.unshift(d);
+      storage.record(d, old ? "저장" : "처음 저장");
       persist();
       return decorateDraft(d);
     };
@@ -614,12 +690,14 @@ if (ownsInstance)
           "publishing",
           "uncertain",
           "published",
+          "updated",
           "queued",
           "remote_scheduled",
           "missed",
         ].includes(d.status)
       )
         throw Error("발행 기록은 보존됩니다.");
+      storage.record(d, "삭제 전");
       state.drafts = state.drafts.filter((x) => x.id !== id);
       persist();
       return publicState();
@@ -766,6 +844,7 @@ if (ownsInstance)
       if (
         [
           "published",
+          "updated",
           "publishing",
           "uncertain",
           "queued",
@@ -837,6 +916,7 @@ if (ownsInstance)
       if (
         [
           "published",
+          "updated",
           "publishing",
           "uncertain",
           "queued",
@@ -949,6 +1029,7 @@ if (ownsInstance)
         [
           "publishing",
           "published",
+          "updated",
           "uncertain",
           "queued",
           "remote_scheduled",
@@ -961,6 +1042,11 @@ if (ownsInstance)
       const s = state.sites.find((x) => x.id === d.siteId);
       if (!s) throw Error("사이트가 없습니다.");
       checkReview(d, s, state.sources);
+      if (d.updateConflict)
+        throw Error(
+          "원격 글 충돌을 해결하려면 최신 원문으로 새 수정본을 만드세요.",
+        );
+      if (d.updateTarget) validateHTML(d.body);
       catalogTools.taxonomy(d, s, state.catalogs[s.id], siteIdentity(s));
       if (publication(d.publication).mode !== "now")
         future(d.publication, Date.now());
@@ -976,6 +1062,7 @@ if (ownsInstance)
     ipcMain.handle("scheduleDraft", async (_, id) => {
       const d = find(id),
         s = state.sites.find((v) => v.id === d.siteId);
+      if (d.updateTarget) throw Error("기존 글 수정본은 예약할 수 없습니다.");
       assertApproved(d, s);
       checkReview(d, s, state.sources);
       const p = future(d.publication, Date.now());
@@ -991,6 +1078,8 @@ if (ownsInstance)
     ipcMain.handle("refreshRemote", async (_, id) => {
       const d = find(id),
         s = state.sites.find((v) => v.id === d.siteId);
+      if (d.updateTarget)
+        throw Error("기존 글 수정 결과 조회 버튼을 사용하세요.");
       if (
         !["remote_scheduled", "uncertain"].includes(d.status) ||
         !d.remote?.id
@@ -1106,6 +1195,7 @@ if (ownsInstance)
     });
     ipcMain.handle("reconcile", (_, v) => {
       const d = find(v.id);
+      if (d.updateTarget) throw Error("기존 글 수정 결과 조회로 확인하세요.");
       if (d.status !== "uncertain") throw Error("확인 대기 원고가 아닙니다.");
       if (d.remote?.id && d.publication?.mode === "remote")
         throw Error(
@@ -1122,6 +1212,109 @@ if (ownsInstance)
       log(`${d.title}: 사용자가 발행 결과를 확인했습니다.`);
       persist();
       return publicState();
+    });
+    const updates = installUpdates({
+      ipcMain,
+      getState: () => state,
+      persist,
+      publicState,
+      request,
+      headers,
+      siteIdentity,
+      saveDraft: saveDraftContent,
+      assertDraftIdle,
+      storage,
+      aiHeaders: (a) => ({
+        Authorization: "Bearer " + decrypt(a.secret),
+        "Content-Type": "application/json",
+      }),
+    });
+    ipcMain.handle("listRevisions", (_, id) =>
+      state.revisions.filter((r) => !id || r.draftId === id),
+    );
+    ipcMain.handle("readRevision", (_, id) => storage.revision(id));
+    ipcMain.handle("restoreRevision", async (_, id) => {
+      const r = storage.revision(id),
+        old = state.drafts.find((d) => d.id === r.draftId);
+      if (old) {
+        assertDraftIdle(old.id);
+        if (
+          [
+            "publishing",
+            "queued",
+            "remote_scheduled",
+            "missed",
+            "uncertain",
+          ].includes(old.status)
+        )
+          throw Error("예약과 발행 상태를 먼저 확인·해제하세요.");
+      }
+      const snap = r.snapshot;
+      let result;
+      if (snap.format === "html" && (old?.updateTarget || r.target)) {
+        const target = old?.updateTarget || r.target;
+        const opened = await updates.open(target);
+        const fresh = state.drafts.find((d) => d.id === opened.draftId);
+        result = saveDraftContent({
+          ...fresh,
+          title: snap.title,
+          body: snap.body,
+          sources: snap.sources || "",
+          sourceIds: snap.sourceIds || [],
+          generation: snap.generation,
+          updateNotes: "이전 원고 이력에서 복원",
+        });
+      } else {
+        result = saveDraftContent({
+          ...snap,
+          id:
+            old && !["published", "updated"].includes(old.status)
+              ? old.id
+              : undefined,
+          siteId: old?.siteId || snap.siteId,
+          title: snap.title,
+          publication: { mode: "now" },
+        });
+      }
+      return { state: publicState(), draftId: result.id };
+    });
+    ipcMain.handle("listBackups", () => storage.list());
+    ipcMain.handle("createBackup", async (_, input) => {
+      let parent;
+      if (input?.external) {
+        const pick = await dialog.showOpenDialog({
+          title: "백업을 저장할 폴더 선택",
+          properties: ["openDirectory", "createDirectory"],
+        });
+        if (pick.canceled) return { cancelled: true };
+        parent = pick.filePaths[0];
+      }
+      return storage.snapshot(input?.external ? "export" : "manual", parent);
+    });
+    let selectedBackup;
+    ipcMain.handle("chooseBackup", async () => {
+      const pick = await dialog.showOpenDialog({
+        title: "manifest.json이 있는 백업 폴더 선택",
+        properties: ["openDirectory"],
+      });
+      if (pick.canceled) return { cancelled: true };
+      const pack = await storage.validate(pick.filePaths[0]);
+      selectedBackup = pack.base;
+      return {
+        path: pack.base,
+        createdAt: pack.manifest.createdAt,
+        drafts: pack.data.drafts.length,
+        sites: pack.data.sites.length,
+      };
+    });
+    ipcMain.handle("restoreBackup", async (_, input) => {
+      const known = (await storage.list()).some((b) => b.path === input.path);
+      if (!known && input.path !== selectedBackup)
+        throw Error("백업 폴더를 먼저 선택하세요.");
+      const result = await storage.restore(input.path, {
+        settings: !!input.settings,
+      });
+      return { ...result, state: publicState() };
     });
     installPlanner({
       ipcMain,
@@ -1162,6 +1355,13 @@ if (ownsInstance)
     mainWindow = win;
     win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     win.webContents.on("will-navigate", (e) => e.preventDefault());
+    win.webContents.once?.("did-finish-load", () => {
+      if (state.recovery) return;
+      storage.autoBackup().catch((e) => {
+        state.backupStatus = { error: e.message };
+        persist();
+      });
+    });
     win.loadFile(path.join(__dirname, "../dist/index.html"));
   });
 app.on("window-all-closed", () => {

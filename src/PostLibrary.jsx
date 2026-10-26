@@ -1,5 +1,13 @@
 import React, { useState } from "react";
-export function PostLibrary({ data, api, run, onState, onNotice, busy }) {
+export function PostLibrary({
+  data,
+  api,
+  run,
+  onState,
+  onNotice,
+  busy,
+  onOpen,
+}) {
   const [siteId, setSiteId] = useState(data.sites[0]?.id || ""),
     [search, setSearch] = useState("");
   const site = data.sites.find((s) => s.id === siteId),
@@ -103,6 +111,25 @@ export function PostLibrary({ data, api, run, onState, onNotice, busy }) {
                 .join(", ")}
           </small>
           {p.excerpt && <p className="hint">{p.excerpt}</p>}
+          <button
+            className="secondary"
+            disabled={busy}
+            onClick={() =>
+              run(async () => {
+                const r = await api.openPostUpdate({
+                  siteId: p.siteId,
+                  remoteId: p.remoteId,
+                });
+                onState(r.state);
+                onOpen(r.state.drafts.find((d) => d.id === r.draftId));
+                onNotice(
+                  "원격 원문을 새 로컬 수정본으로 불러왔습니다. 아직 블로그는 바뀌지 않았습니다.",
+                );
+              })
+            }
+          >
+            이 글 수정본 만들기
+          </button>
         </div>
       ))}
       {!posts.length && (

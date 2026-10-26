@@ -3,6 +3,7 @@ const seed = {
   drafts: [],
   sources: [],
   media: [],
+  revisions: [],
   catalogs: {},
   posts: [],
   plans: [],
@@ -107,6 +108,39 @@ export const api = window.studio || {
     throw Error("일괄 AI 준비는 데스크톱 앱에서 사용하세요.");
   },
   stopBatch: async () => read(),
+  listRevisions: async () => [],
+  readRevision: async () => {
+    throw Error("원고 이력은 데스크톱 앱에서 사용하세요.");
+  },
+  restoreRevision: async () => {
+    throw Error("원고 복원은 데스크톱 앱에서 사용하세요.");
+  },
+  listBackups: async () => [],
+  createBackup: async () => {
+    throw Error("백업은 데스크톱 앱에서 사용하세요.");
+  },
+  chooseBackup: async () => {
+    throw Error("백업 폴더는 데스크톱 앱에서 선택하세요.");
+  },
+  restoreBackup: async () => {
+    throw Error("복구는 데스크톱 앱에서 사용하세요.");
+  },
+  openPostUpdate: async () => {
+    throw Error("원격 글 수정본은 데스크톱 앱에서 불러오세요.");
+  },
+  suggestPostUpdate: async () => {
+    throw Error("AI 수정안은 데스크톱 앱에서 사용하세요.");
+  },
+  applyPostUpdate: async () => {
+    throw Error("원격 수정 반영은 데스크톱 앱에서 사용하세요.");
+  },
+  checkPostUpdate: async () => {
+    throw Error("원격 조회는 데스크톱 앱에서 사용하세요.");
+  },
+  previewHTML: async (body) =>
+    '<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src none"><pre>' +
+    String(body).replace(/&/g, "&amp;").replace(/</g, "&lt;") +
+    "</pre>",
   generate: async () => {
     throw Error("AI 생성은 데스크톱 앱에서 연결 후 사용할 수 있습니다.");
   },
