@@ -249,6 +249,13 @@ test("Blogger는 외부 이미지와 초안 생성→예약 publish API 사용, 
     assert.ok(JSON.parse(c.calls[0].options.body).content.includes("<figure>"));
     await c.call("cancelSchedule", d.id);
     assert.ok(c.calls.at(-1).url.endsWith("/revert"));
+    assert.ok(
+      c.calls.some(
+        (v) =>
+          v.method === "GET" &&
+          new URL(v.url).searchParams.get("view") === "ADMIN",
+      ),
+    );
     const imported = c.call("importImage", { name: "photo.png", dataUrl: png });
     const local = c.call(
       "saveDraft",

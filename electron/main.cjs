@@ -180,6 +180,9 @@ function siteIdentity(s) {
     )
     .digest("hex");
 }
+function remoteReadURL(s, id) {
+  return remoteURL(s, id) + (s.type === "blogger" ? "?view=ADMIN" : "");
+}
 function mediaPath(m) {
   return path.join(path.dirname(file), "media", m.id + "." + m.ext);
 }
@@ -894,7 +897,7 @@ if (ownsInstance)
         throw Error("조회할 원격 게시물 ID가 없습니다.");
       if (!s || siteIdentity(s) !== d.remote.siteKey)
         throw Error("예약 당시 사이트 연결 설정을 복원한 뒤 조회하세요.");
-      const result = await request(remoteURL(s, d.remote.id), {
+      const result = await request(remoteReadURL(s, d.remote.id), {
         headers: headers(s),
       });
       if (!["remote_scheduled", "uncertain"].includes(d.status))
@@ -927,7 +930,7 @@ if (ownsInstance)
       persist();
       let attempted = false;
       try {
-        const previous = await request(remoteURL(s, d.remote.id), {
+        const previous = await request(remoteReadURL(s, d.remote.id), {
           headers: headers(s),
         });
         if (!["future", "SCHEDULED"].includes(previous.status)) {
