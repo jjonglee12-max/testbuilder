@@ -2,6 +2,7 @@ const key = "ai-blog-studio-preview-v1";
 const seed = {
   drafts: [],
   sources: [],
+  media: [],
   sites: [],
   logs: [],
   ai: { endpoint: "https://api.openai.com/v1", model: "gpt-4.1-mini" },
@@ -68,6 +69,18 @@ export const api = window.studio || {
   },
   reviewDraft: async () => {
     throw Error("별도 AI 검토는 데스크톱 앱에서 사용하세요.");
+  },
+  importImage: async () => {
+    throw Error("파일 보관은 데스크톱 앱에서 사용하세요.");
+  },
+  scheduleDraft: async () => {
+    throw Error("예약 등록은 데스크톱 앱에서 사용하세요.");
+  },
+  cancelSchedule: async () => {
+    throw Error("예약 해제는 데스크톱 앱에서 사용하세요.");
+  },
+  refreshRemote: async () => {
+    throw Error("플랫폼 상태 조회는 데스크톱 앱에서 사용하세요.");
   },
   generate: async () => {
     throw Error("AI 생성은 데스크톱 앱에서 연결 후 사용할 수 있습니다.");

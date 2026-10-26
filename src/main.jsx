@@ -36,6 +36,8 @@ const blank = () => ({
   siteId: "",
   disclosure: "",
   sourceIds: [],
+  images: [],
+  publication: { mode: "now" },
 });
 const types = [
   "도구 소개",
@@ -50,7 +52,10 @@ const labels = {
   approved: "승인 완료",
   published: "발행 완료",
   uncertain: "결과 확인 필요",
-  publishing: "발행 중",
+  publishing: "처리 중",
+  queued: "로컬 예약",
+  remote_scheduled: "플랫폼 예약 등록",
+  missed: "시간 경과 · 보류",
 };
 function App() {
   const [data, setData] = useState(null),
@@ -96,6 +101,25 @@ function App() {
       })
       .catch((e) => setNotice(e.message));
   }, []);
+  useEffect(() => {
+    if (!data?.drafts.some((d) => ["queued", "publishing"].includes(d.status)))
+      return;
+    const timer = setInterval(() => {
+      api
+        .load()
+        .then((s) => {
+          setData(s);
+          setDraft((current) => {
+            const saved = s.drafts.find((d) => d.id === current.id);
+            return ["queued", "publishing"].includes(current.status) && saved
+              ? saved
+              : current;
+          });
+        })
+        .catch(() => {});
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [data?.drafts.some((d) => ["queued", "publishing"].includes(d.status))]);
   async function run(fn) {
     setBusy(true);
     setNotice("");
@@ -109,7 +133,14 @@ function App() {
         setDraft((current) => {
           const saved = s.drafts.find((d) => d.id === current.id);
           return saved &&
-            ["published", "publishing", "uncertain"].includes(saved.status)
+            [
+              "published",
+              "publishing",
+              "uncertain",
+              "queued",
+              "remote_scheduled",
+              "missed",
+            ].includes(saved.status)
             ? saved
             : current;
         });
@@ -124,17 +155,33 @@ function App() {
     return s;
   }
   function edit(d) {
+    if (busy) return;
     setDraft({ ...d });
     setChecked(false);
     setTab("write");
     setPage("editor");
   }
   function change(k, v) {
+    if (
+      [
+        "published",
+        "publishing",
+        "uncertain",
+        "queued",
+        "remote_scheduled",
+        "missed",
+      ].includes(draft.status)
+    ) {
+      setNotice(
+        "예약·발행 내역은 잠겨 있습니다. 예약을 취소하거나 새 원고로 복사하세요.",
+      );
+      return;
+    }
     setDraft((d) => ({
       ...d,
       [k]: v,
       approval: undefined,
-      reviewCurrent: false,
+      reviewCurrent: k === "publication" ? d.reviewCurrent : false,
       status: "draft",
     }));
     setChecked(false);
@@ -162,6 +209,7 @@ function App() {
     ["dashboard", LayoutDashboard, "대시보드"],
     ["drafts", FileText, "원고 보관함"],
     ["sources", Library, "자료함"],
+    ["schedule", Clock, "발행 일정"],
     ["editor", PenLine, "새 글 작성"],
     ["sites", Globe, "사이트 관리"],
     ["settings", Settings, "AI · 프롬프트"],
@@ -174,6 +222,10 @@ function App() {
     dashboard: [
       "작은 아이디어에서, 좋은 글까지.",
       "오늘의 콘텐츠 작업을 한곳에서 이어가세요.",
+    ],
+    schedule: [
+      "발행 일정",
+      "승인한 원고의 예약과 플랫폼 등록 결과를 관리하세요.",
     ],
     sources: ["자료함", "URL의 본문과 확인 시점을 보관하고 원고에 연결하세요."],
     drafts: ["원고 보관함", "아이디어부터 발행까지, 모든 원고의 기록입니다."],
@@ -202,6 +254,7 @@ function App() {
         <button
           className="workspace"
           onClick={() => setPage("workspace")}
+          disabled={busy}
           aria-label="워크스페이스 설정"
         >
           <span className="avatar">나</span>
@@ -216,6 +269,7 @@ function App() {
           {nav.map(([id, Icon, name]) => (
             <button
               key={id}
+              disabled={busy}
               className={page === id ? "active" : ""}
               onClick={() => {
                 if (id === "editor") edit(blank());
@@ -240,7 +294,7 @@ function App() {
         <div className="sidebar-bottom">
           <span className="dot" />
           {preview ? "브라우저 화면 확인 모드" : "데스크톱 · 로컬 저장"}
-          <small>AI Blog Studio · v0.2.0</small>
+          <small>AI Blog Studio · v0.3.0</small>
         </div>
       </aside>
       <div className="shell">
@@ -472,6 +526,96 @@ function App() {
               )}
             </section>
           )}
+          {page === "schedule" && (
+            <section className="panel padded">
+              <h3>예약 원고</h3>
+              <p className="hint">
+                플랫폼 예약은 등록 후 앱을 꺼도 실행됩니다. WordPress는 사이트의
+                예약 실행 기능(WP-Cron/서버 설정)에 따라 지연될 수 있습니다.
+                로컬 예약은 앱이 실행 중이어야 하며, 5분 이상 늦거나 재시작 전에
+                시간이 지난 작업은 자동 발행하지 않습니다. 표시는 한국
+                시간(UTC+9)입니다.
+              </p>
+              {data.drafts.filter(
+                (d) => d.publication?.mode && d.publication.mode !== "now",
+              ).length === 0 && (
+                <div className="empty">
+                  <Clock size={30} />
+                  <h3>예약한 원고가 없습니다</h3>
+                  <p>
+                    원고에서 발행 방식을 정하고 최종 승인 후 예약을 등록하세요.
+                  </p>
+                </div>
+              )}
+              {data.drafts
+                .filter(
+                  (d) => d.publication?.mode && d.publication.mode !== "now",
+                )
+                .sort(
+                  (a, b) =>
+                    Date.parse(a.publication.at) - Date.parse(b.publication.at),
+                )
+                .map((d) => (
+                  <div className="schedule-row" key={d.id}>
+                    <div>
+                      <button className="text-button" onClick={() => edit(d)}>
+                        {d.title || "제목 없는 원고"}
+                      </button>
+                      <small>
+                        {koreanTime(d.publication.at)} ·{" "}
+                        {d.publication.mode === "remote"
+                          ? "플랫폼 예약"
+                          : "앱 실행 필요"}
+                      </small>
+                      {d.deliveryError && (
+                        <p className="hint">{d.deliveryError}</p>
+                      )}
+                    </div>
+                    <span className={"status " + d.status}>
+                      {labels[d.status]}
+                    </span>
+                    {["queued", "remote_scheduled", "missed"].includes(
+                      d.status,
+                    ) && (
+                      <button
+                        className="secondary"
+                        disabled={busy}
+                        onClick={() =>
+                          run(async () => {
+                            if (
+                              !confirm(
+                                d.status === "remote_scheduled"
+                                  ? "플랫폼 예약을 취소하고 원격 글을 초안으로 돌릴까요?"
+                                  : "로컬 예약을 해제할까요?",
+                              )
+                            )
+                              return;
+                            setData(await api.cancelSchedule(d.id));
+                          })
+                        }
+                      >
+                        예약 해제
+                      </button>
+                    )}
+                    {d.remote?.id &&
+                      ["remote_scheduled", "uncertain"].includes(d.status) && (
+                        <button
+                          className="secondary"
+                          disabled={busy}
+                          onClick={() =>
+                            run(async () => {
+                              setData(await api.refreshRemote(d.id));
+                              setNotice("플랫폼 상태를 조회했습니다.");
+                            })
+                          }
+                        >
+                          플랫폼 상태 조회
+                        </button>
+                      )}
+                  </div>
+                ))}
+            </section>
+          )}
           {page === "sources" && (
             <section className="panel padded">
               <h3>URL 자료 수집</h3>
@@ -549,6 +693,13 @@ function App() {
                       <BookOpen size={15} />
                       미리보기
                     </button>
+                    <button
+                      className={tab === "images" ? "selected" : ""}
+                      onClick={() => setTab("images")}
+                    >
+                      <Library size={15} />
+                      이미지 ({draft.images?.length || 0})
+                    </button>
                   </div>
                   <span className={"status " + (draft.status || "draft")}>
                     {labels[draft.status] || "새 원고"}
@@ -558,12 +709,34 @@ function App() {
                   <>
                     <input
                       className="title-input"
+                      readOnly={
+                        busy ||
+                        [
+                          "published",
+                          "publishing",
+                          "uncertain",
+                          "queued",
+                          "remote_scheduled",
+                          "missed",
+                        ].includes(draft.status)
+                      }
                       placeholder="이야기에 제목을 붙여주세요"
                       value={draft.title}
                       onChange={(e) => change("title", e.target.value)}
                     />
                     <textarea
                       className="body-input"
+                      readOnly={
+                        busy ||
+                        [
+                          "published",
+                          "publishing",
+                          "uncertain",
+                          "queued",
+                          "remote_scheduled",
+                          "missed",
+                        ].includes(draft.status)
+                      }
                       placeholder={
                         "첫 문장을 적어보세요.\n\nAI로 초안을 만들려면 오른쪽에 주제와 참고 자료를 입력하세요.\n\n## 소제목\n빈 줄로 문단을 나눌 수 있습니다."
                       }
@@ -571,9 +744,46 @@ function App() {
                       onChange={(e) => change("body", e.target.value)}
                     />
                   </>
+                ) : tab === "images" ? (
+                  <ImageEditor
+                    draft={draft}
+                    media={data.media || []}
+                    busy={busy}
+                    onChange={(value) => change("images", value)}
+                    onError={setNotice}
+                    onImport={(file) =>
+                      run(async () => {
+                        if (file.size > 10 * 1024 * 1024)
+                          throw Error("10MB 이하 파일을 선택하세요.");
+                        const r = await api.importImage({
+                          name: file.name,
+                          dataUrl: await fileData(file),
+                        });
+                        setData(r.state);
+                        change("images", [
+                          ...(draft.images || []),
+                          {
+                            id: crypto.randomUUID(),
+                            assetId: r.assetId,
+                            url: "",
+                            alt: "",
+                            caption: "",
+                            position: "bottom",
+                            featured: false,
+                          },
+                        ]);
+                      })
+                    }
+                  />
                 ) : (
                   <article className="article">
                     <h1>{draft.title || "제목 없는 원고"}</h1>
+                    <ImagePreview
+                      images={(draft.images || []).filter(
+                        (i) => i.position === "top",
+                      )}
+                      media={data.media || []}
+                    />
                     {draft.body
                       .split(/\n\n+/)
                       .map((p, i) =>
@@ -584,6 +794,14 @@ function App() {
                         ),
                       )}
                     {!draft.body && <p>작성한 내용이 이곳에 표시됩니다.</p>}
+                    <ImagePreview
+                      images={(draft.images || []).filter(
+                        (i) =>
+                          i.position !== "top" &&
+                          i.position !== "featured_only",
+                      )}
+                      media={data.media || []}
+                    />
                   </article>
                 )}
                 <div className="editor-footer">
@@ -594,9 +812,14 @@ function App() {
                   <button
                     disabled={
                       busy ||
-                      ["published", "publishing", "uncertain"].includes(
-                        draft.status,
-                      )
+                      [
+                        "published",
+                        "publishing",
+                        "uncertain",
+                        "queued",
+                        "remote_scheduled",
+                        "missed",
+                      ].includes(draft.status)
                     }
                     className="secondary"
                     onClick={() =>
@@ -681,9 +904,14 @@ function App() {
                     disabled={
                       busy ||
                       !sourceUrls.trim() ||
-                      ["published", "publishing", "uncertain"].includes(
-                        draft.status,
-                      )
+                      [
+                        "published",
+                        "publishing",
+                        "uncertain",
+                        "queued",
+                        "remote_scheduled",
+                        "missed",
+                      ].includes(draft.status)
                     }
                     onClick={() =>
                       run(async () => {
@@ -721,9 +949,14 @@ function App() {
                           checked={(draft.sourceIds || []).includes(ref.id)}
                           disabled={
                             busy ||
-                            ["published", "publishing", "uncertain"].includes(
-                              draft.status,
-                            )
+                            [
+                              "published",
+                              "publishing",
+                              "uncertain",
+                              "queued",
+                              "remote_scheduled",
+                              "missed",
+                            ].includes(draft.status)
                           }
                           onChange={(e) => {
                             const ids = draft.sourceIds || [];
@@ -755,9 +988,14 @@ function App() {
                     disabled={
                       busy ||
                       !draft.topic.trim() ||
-                      ["published", "publishing", "uncertain"].includes(
-                        draft.status,
-                      )
+                      [
+                        "published",
+                        "publishing",
+                        "uncertain",
+                        "queued",
+                        "remote_scheduled",
+                        "missed",
+                      ].includes(draft.status)
                     }
                     onClick={() =>
                       run(async () => {
@@ -821,9 +1059,14 @@ function App() {
                       busy ||
                       !draft.title.trim() ||
                       !draft.body.trim() ||
-                      ["published", "publishing", "uncertain"].includes(
-                        draft.status,
-                      )
+                      [
+                        "published",
+                        "publishing",
+                        "uncertain",
+                        "queued",
+                        "remote_scheduled",
+                        "missed",
+                      ].includes(draft.status)
                     }
                     onClick={() =>
                       run(async () => {
@@ -913,6 +1156,54 @@ function App() {
                       {draft.reviewNotes}
                     </div>
                   )}
+                  <label>
+                    발행 방식
+                    <select
+                      aria-label="발행 방식"
+                      value={draft.publication?.mode || "now"}
+                      onChange={(e) =>
+                        change("publication", {
+                          mode: e.target.value,
+                          ...(e.target.value !== "now"
+                            ? { at: draft.publication?.at || "" }
+                            : {}),
+                        })
+                      }
+                    >
+                      <option value="now">즉시 공개 발행</option>
+                      <option value="remote">
+                        플랫폼에 예약 등록 (앱 종료 가능)
+                      </option>
+                      <option value="local">로컬 예약 (앱 실행 필요)</option>
+                    </select>
+                  </label>
+                  {draft.publication?.mode &&
+                    draft.publication.mode !== "now" && (
+                      <>
+                        <label>
+                          예약 일시 · 한국 시간 (UTC+9)
+                          <input
+                            type="datetime-local"
+                            value={koreanInput(draft.publication.at)}
+                            onChange={(e) =>
+                              change("publication", {
+                                ...draft.publication,
+                                at: e.target.value
+                                  ? new Date(
+                                      e.target.value + ":00+09:00",
+                                    ).toISOString()
+                                  : "",
+                              })
+                            }
+                          />
+                        </label>
+                        <p className="hint">
+                          {draft.publication.mode === "remote"
+                            ? "승인 후 플랫폼에 예약 등록해야 합니다. 등록 성공 뒤에는 PC를 꺼도 됩니다."
+                            : "예약 시간에 PC와 앱이 실행 중이어야 합니다. 재시작 전에 지난 예약은 보류합니다."}
+                        </p>
+                      </>
+                    )}
                   <label className="checkbox">
                     <input
                       type="checkbox"
@@ -929,9 +1220,14 @@ function App() {
                       busy ||
                       !checked ||
                       reviewBlocked ||
-                      ["published", "publishing", "uncertain"].includes(
-                        draft.status,
-                      )
+                      [
+                        "published",
+                        "publishing",
+                        "uncertain",
+                        "queued",
+                        "remote_scheduled",
+                        "missed",
+                      ].includes(draft.status)
                     }
                     onClick={() =>
                       run(async () => {
@@ -957,42 +1253,102 @@ function App() {
                         const s = data.sites.find((s) => s.id === draft.siteId);
                         if (
                           !confirm(
-                            `“${s?.name}”에 “${draft.title}”을 공개 발행합니다. 진행할까요?`,
+                            draft.publication?.mode &&
+                              draft.publication.mode !== "now"
+                              ? `“${s?.name}”에 “${draft.title}”을 ${koreanTime(draft.publication.at)}에 ${draft.publication.mode === "remote" ? "플랫폼 예약 등록" : "로컬 예약"}합니다. 진행할까요?`
+                              : `“${s?.name}”에 “${draft.title}”을 공개 발행합니다. 진행할까요?`,
                           )
                         )
                           return;
                         const saved = await save();
-                        const next = await api.publish(saved.id);
+                        const next = await (saved.publication?.mode &&
+                        saved.publication.mode !== "now"
+                          ? api.scheduleDraft(saved.id)
+                          : api.publish(saved.id));
                         setData(next);
                         setDraft(next.drafts.find((d) => d.id === saved.id));
                         setNotice(
-                          "발행 완료. 원격 게시 주소를 발행 기록에 저장했습니다.",
+                          saved.publication?.mode &&
+                            saved.publication.mode !== "now"
+                            ? "예약 등록 결과를 확인하세요. 발행 일정에서 관리할 수 있습니다."
+                            : "발행 완료. 원격 게시 주소를 저장했습니다.",
                         );
                       })
                     }
                   >
                     <Send size={16} />
-                    블로그에 공개 발행
+                    {draft.publication?.mode && draft.publication.mode !== "now"
+                      ? "승인한 원고 예약 등록"
+                      : "블로그에 공개 발행"}
                   </button>
-                  {draft.publishedUrl && (
-                    <p className="hint">발행 주소: {draft.publishedUrl}</p>
+                  {draft.deliveryError && (
+                    <div className="review-note">{draft.deliveryError}</div>
                   )}
-                  {draft.status === "uncertain" && (
+                  {["queued", "remote_scheduled", "missed"].includes(
+                    draft.status,
+                  ) && (
                     <button
                       className="secondary full"
+                      disabled={busy}
                       onClick={() =>
                         run(async () => {
-                          const url = promptResult();
-                          if (url === null) return;
-                          const s = await api.reconcile(draft.id, url);
-                          setData(s);
-                          setDraft(s.drafts.find((d) => d.id === draft.id));
+                          if (
+                            !confirm(
+                              "예약을 해제할까요? 플랫폼 예약은 원격 글을 초안으로 돌립니다.",
+                            )
+                          )
+                            return;
+                          const next = await api.cancelSchedule(draft.id);
+                          setData(next);
+                          setDraft(next.drafts.find((d) => d.id === draft.id));
                         })
                       }
                     >
-                      사이트에서 확인 후 결과 정리
+                      예약 해제 후 편집
                     </button>
                   )}
+                  {draft.remote?.id &&
+                    ["remote_scheduled", "uncertain"].includes(
+                      draft.status,
+                    ) && (
+                      <button
+                        className="secondary full"
+                        disabled={busy}
+                        onClick={() =>
+                          run(async () => {
+                            const next = await api.refreshRemote(draft.id);
+                            setData(next);
+                            setDraft(
+                              next.drafts.find((d) => d.id === draft.id),
+                            );
+                          })
+                        }
+                      >
+                        플랫폼 상태 조회
+                      </button>
+                    )}
+                  {draft.publishedUrl && (
+                    <p className="hint">발행 주소: {draft.publishedUrl}</p>
+                  )}
+                  {draft.status === "uncertain" &&
+                    !(
+                      draft.remote?.id && draft.publication?.mode === "remote"
+                    ) && (
+                      <button
+                        className="secondary full"
+                        onClick={() =>
+                          run(async () => {
+                            const url = promptResult();
+                            if (url === null) return;
+                            const s = await api.reconcile(draft.id, url);
+                            setData(s);
+                            setDraft(s.drafts.find((d) => d.id === draft.id));
+                          })
+                        }
+                      >
+                        사이트에서 확인 후 결과 정리
+                      </button>
+                    )}
                   <button
                     className="text-button"
                     onClick={() =>
@@ -1003,6 +1359,10 @@ function App() {
                         status: "draft",
                         approval: undefined,
                         publishedUrl: undefined,
+                        publication: { mode: "now" },
+                        remote: undefined,
+                        deliveryError: undefined,
+                        deliveryPhase: undefined,
                       })
                     }
                   >
@@ -1392,6 +1752,246 @@ function App() {
         </footer>
       </div>
     </div>
+  );
+}
+function koreanTime(at) {
+  return Number.isFinite(Date.parse(at))
+    ? new Date(at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })
+    : "예약 시간 미정";
+}
+function koreanInput(at) {
+  return Number.isFinite(Date.parse(at))
+    ? new Date(Date.parse(at) + 9 * 3600000).toISOString().slice(0, 16)
+    : "";
+}
+function fileData(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(Error("이미지 파일을 읽지 못했습니다."));
+    reader.readAsDataURL(file);
+  });
+}
+function ImagePreview({ images, media }) {
+  return images.map((i) => (
+    <figure className="image-preview" key={i.id}>
+      {i.assetId ? (
+        <img src={media.find((m) => m.id === i.assetId)?.preview} alt={i.alt} />
+      ) : (
+        <div className="external-image">
+          외부 이미지 URL · 발행 시 사용
+          <br />
+          {i.url}
+        </div>
+      )}
+      <figcaption>
+        {i.caption || i.alt}
+        {i.featured ? " · WordPress 대표 이미지" : ""}
+      </figcaption>
+    </figure>
+  ));
+}
+function ImageEditor({ draft, media, busy, onChange, onImport, onError }) {
+  const [url, setUrl] = useState(""),
+    [alt, setAlt] = useState(""),
+    [assetId, setAssetId] = useState("");
+  const locked =
+    busy ||
+    [
+      "published",
+      "publishing",
+      "uncertain",
+      "queued",
+      "remote_scheduled",
+      "missed",
+    ].includes(draft.status);
+  const list = draft.images || [];
+  function add(value) {
+    if (list.length >= 10) {
+      onError("이미지는 최대 10개 추가할 수 있습니다.");
+      return;
+    }
+    onChange([
+      ...list,
+      {
+        id: crypto.randomUUID(),
+        caption: "",
+        position: "bottom",
+        featured: false,
+        ...value,
+      },
+    ]);
+  }
+  function update(id, values) {
+    onChange(
+      list.map((i) =>
+        i.id === id
+          ? { ...i, ...values }
+          : values.featured
+            ? { ...i, featured: false }
+            : i,
+      ),
+    );
+  }
+  return (
+    <section className="image-editor">
+      <h3>원고 이미지</h3>
+      <p className="hint">
+        PNG·JPEG·WebP 파일을 보관하고 WordPress 발행 시 업로드합니다. Blogger는
+        이미 호스팅된 HTTPS 이미지 URL을 사용하세요. 실제 이미지와 출처·사용
+        권한은 사람이 확인해야 하며 AI 검토에는 대체 텍스트·캡션만 전달됩니다.
+      </p>
+      <label>
+        PC에서 이미지 추가 (최대 10MB)
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          disabled={locked || list.length >= 10}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onImport(f);
+            e.target.value = "";
+          }}
+        />
+      </label>
+      <div className="form-row">
+        <label>
+          보관한 이미지
+          <select value={assetId} onChange={(e) => setAssetId(e.target.value)}>
+            <option value="">선택</option>
+            {media.map((m) => (
+              <option value={m.id} key={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          className="secondary"
+          disabled={locked || !assetId}
+          onClick={() => add({ assetId, url: "", alt: "" })}
+        >
+          보관 이미지 추가
+        </button>
+      </div>
+      <label>
+        외부 이미지 HTTPS 주소
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://my-site.com/image.png"
+        />
+      </label>
+      <label>
+        외부 이미지 대체 텍스트
+        <input
+          value={alt}
+          onChange={(e) => setAlt(e.target.value)}
+          placeholder="이미지가 전달하는 내용을 설명하세요"
+        />
+      </label>
+      <button
+        className="secondary"
+        disabled={locked || !url || !alt}
+        onClick={() => {
+          try {
+            if (new URL(url).protocol !== "https:") throw Error();
+            add({ assetId: "", url, alt });
+            setUrl("");
+            setAlt("");
+          } catch {
+            onError("HTTPS 이미지 주소를 입력하세요.");
+          }
+        }}
+      >
+        외부 이미지 추가
+      </button>
+      {list.map((i, index) => (
+        <div className="image-item" key={i.id}>
+          <ImagePreview images={[i]} media={media} />
+          <label>
+            대체 텍스트
+            <input
+              value={i.alt}
+              disabled={locked}
+              onChange={(e) => update(i.id, { alt: e.target.value })}
+            />
+          </label>
+          <label>
+            캡션
+            <textarea
+              value={i.caption}
+              rows={2}
+              disabled={locked}
+              onChange={(e) => update(i.id, { caption: e.target.value })}
+            />
+          </label>
+          <label>
+            본문 배치
+            <select
+              value={i.position}
+              disabled={locked}
+              onChange={(e) => update(i.id, { position: e.target.value })}
+            >
+              <option value="top">본문 위</option>
+              <option value="bottom">본문 아래</option>
+              {i.assetId && (
+                <option value="featured_only" disabled={!i.featured}>
+                  대표 이미지로만 사용
+                </option>
+              )}
+            </select>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={i.featured}
+              disabled={locked || !i.assetId}
+              onChange={(e) =>
+                update(i.id, {
+                  featured: e.target.checked,
+                  ...(!e.target.checked && i.position === "featured_only"
+                    ? { position: "bottom" }
+                    : {}),
+                })
+              }
+            />
+            WordPress 대표 이미지
+          </label>
+          <div className="image-actions">
+            <button
+              className="secondary"
+              disabled={locked || index === 0}
+              onClick={() => {
+                const next = [...list];
+                [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                onChange(next);
+              }}
+            >
+              위로
+            </button>
+            <button
+              className="secondary"
+              disabled={locked || index === list.length - 1}
+              onClick={() => {
+                const next = [...list];
+                [next[index + 1], next[index]] = [next[index], next[index + 1]];
+                onChange(next);
+              }}
+            >
+              아래로
+            </button>
+            <button
+              className="secondary"
+              disabled={locked}
+              onClick={() => onChange(list.filter((v) => v.id !== i.id))}
+            >
+              원고에서 제거
+            </button>
+          </div>
+        </div>
+      ))}
+    </section>
   );
 }
 function promptResult() {

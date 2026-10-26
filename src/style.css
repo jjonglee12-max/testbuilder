@@ -1020,3 +1020,64 @@ button.workspace {
 .profile-fields label {
   margin: 9px 0;
 }
+
+.image-editor {
+  padding: 28px;
+}
+.image-item {
+  padding: 20px 0;
+  border-top: 1px solid #eee;
+  margin-top: 20px;
+}
+.image-preview {
+  margin: 16px 0;
+  text-align: center;
+}
+.image-preview img {
+  max-width: 100%;
+  max-height: 340px;
+  object-fit: contain;
+  border-radius: 9px;
+}
+.image-preview figcaption {
+  font-size: 11px;
+  color: #999;
+  margin-top: 7px;
+}
+.external-image {
+  padding: 22px;
+  background: #f4f1f8;
+  border-radius: 9px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  color: #8a789e;
+}
+.image-actions {
+  display: flex;
+  gap: 8px;
+}
+.schedule-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 0;
+  border-top: 1px solid #eee;
+}
+.schedule-row > div {
+  flex: 1;
+}
+.schedule-row small {
+  display: block;
+  font-size: 11px;
+  color: #999;
+  margin-top: 6px;
+}
+.status.queued,
+.status.remote_scheduled {
+  background: #eaf5f1;
+  color: #5b9c82;
+}
+.status.missed {
+  background: #fff2e3;
+  color: #b18c5b;
+}
