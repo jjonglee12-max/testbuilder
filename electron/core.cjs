@@ -68,6 +68,9 @@ function fingerprint(d, site) {
         sources: d.sources || "",
         sourceIds: d.sourceIds || [],
         images: d.images || [],
+        categoryIds: d.categoryIds || [],
+        tagIds: d.tagIds || [],
+        labels: d.labels || [],
         publication: d.publication || { mode: "now" },
       }),
     )

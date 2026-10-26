@@ -3,6 +3,9 @@ const seed = {
   drafts: [],
   sources: [],
   media: [],
+  catalogs: {},
+  posts: [],
+  plans: [],
   sites: [],
   logs: [],
   ai: { endpoint: "https://api.openai.com/v1", model: "gpt-4.1-mini" },
@@ -82,6 +85,28 @@ export const api = window.studio || {
   refreshRemote: async () => {
     throw Error("플랫폼 상태 조회는 데스크톱 앱에서 사용하세요.");
   },
+  syncTaxonomy: async () => {
+    throw Error("사이트 분류 불러오기는 데스크톱 앱에서 사용하세요.");
+  },
+  syncPosts: async () => {
+    throw Error("기존 글 불러오기는 데스크톱 앱에서 사용하세요.");
+  },
+  recommendLinks: async () => ({ links: [], duplicates: [] }),
+  savePlan: async (input) => {
+    const s = read();
+    const p = { ...input, id: input.id || crypto.randomUUID(), status: "idea" };
+    s.plans = [p, ...(s.plans || []).filter((v) => v.id !== p.id)];
+    return write(s);
+  },
+  deletePlan: async (id) => {
+    const s = read();
+    s.plans = (s.plans || []).filter((v) => v.id !== id);
+    return write(s);
+  },
+  startBatch: async () => {
+    throw Error("일괄 AI 준비는 데스크톱 앱에서 사용하세요.");
+  },
+  stopBatch: async () => read(),
   generate: async () => {
     throw Error("AI 생성은 데스크톱 앱에서 연결 후 사용할 수 있습니다.");
   },

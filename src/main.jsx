@@ -27,6 +27,10 @@ import {
 } from "lucide-react";
 import { api, preview } from "./demo";
 import "./style.css";
+import { Classification } from "./Classification";
+import { Planning } from "./Planning";
+import { PostLibrary } from "./PostLibrary";
+import { RelatedLinks } from "./RelatedLinks";
 const blank = () => ({
   title: "",
   body: "",
@@ -36,6 +40,9 @@ const blank = () => ({
   siteId: "",
   disclosure: "",
   sourceIds: [],
+  categoryIds: [],
+  tagIds: [],
+  labels: [],
   images: [],
   publication: { mode: "now" },
 });
@@ -102,24 +109,34 @@ function App() {
       .catch((e) => setNotice(e.message));
   }, []);
   useEffect(() => {
-    if (!data?.drafts.some((d) => ["queued", "publishing"].includes(d.status)))
+    const batching = ["running", "stopping"].includes(data?.batch?.status);
+    if (
+      !batching &&
+      !data?.drafts.some((d) => ["queued", "publishing"].includes(d.status))
+    )
       return;
-    const timer = setInterval(() => {
-      api
-        .load()
-        .then((s) => {
-          setData(s);
-          setDraft((current) => {
-            const saved = s.drafts.find((d) => d.id === current.id);
-            return ["queued", "publishing"].includes(current.status) && saved
-              ? saved
-              : current;
-          });
-        })
-        .catch(() => {});
-    }, 15000);
+    const timer = setInterval(
+      () => {
+        api
+          .load()
+          .then((s) => {
+            setData(s);
+            setDraft((current) => {
+              const saved = s.drafts.find((d) => d.id === current.id);
+              return ["queued", "publishing"].includes(current.status) && saved
+                ? saved
+                : current;
+            });
+          })
+          .catch(() => {});
+      },
+      batching ? 2000 : 15000,
+    );
     return () => clearInterval(timer);
-  }, [data?.drafts.some((d) => ["queued", "publishing"].includes(d.status))]);
+  }, [
+    data?.drafts.some((d) => ["queued", "publishing"].includes(d.status)),
+    data?.batch?.status,
+  ]);
   async function run(fn) {
     setBusy(true);
     setNotice("");
@@ -180,8 +197,16 @@ function App() {
     setDraft((d) => ({
       ...d,
       [k]: v,
+      ...(k === "siteId" ? { categoryIds: [], tagIds: [], labels: [] } : {}),
       approval: undefined,
-      reviewCurrent: k === "publication" ? d.reviewCurrent : false,
+      reviewCurrent: [
+        "publication",
+        "categoryIds",
+        "tagIds",
+        "labels",
+      ].includes(k)
+        ? d.reviewCurrent
+        : false,
       status: "draft",
     }));
     setChecked(false);
@@ -208,6 +233,8 @@ function App() {
   const nav = [
     ["dashboard", LayoutDashboard, "대시보드"],
     ["drafts", FileText, "원고 보관함"],
+    ["planning", PenLine, "주제 기획 · 일괄 준비"],
+    ["posts", Link, "기존 발행 글"],
     ["sources", Library, "자료함"],
     ["schedule", Clock, "발행 일정"],
     ["editor", PenLine, "새 글 작성"],
@@ -222,6 +249,14 @@ function App() {
     dashboard: [
       "작은 아이디어에서, 좋은 글까지.",
       "오늘의 콘텐츠 작업을 한곳에서 이어가세요.",
+    ],
+    planning: [
+      "주제 기획과 일괄 준비",
+      "주제를 모으고 자료 수집·초안·검토를 순서대로 준비하세요.",
+    ],
+    posts: [
+      "기존 발행 글",
+      "실제 게시물을 불러와 내부 링크와 중복 주제를 확인하세요.",
     ],
     schedule: [
       "발행 일정",
@@ -294,7 +329,7 @@ function App() {
         <div className="sidebar-bottom">
           <span className="dot" />
           {preview ? "브라우저 화면 확인 모드" : "데스크톱 · 로컬 저장"}
-          <small>AI Blog Studio · v0.3.0</small>
+          <small>AI Blog Studio · v0.4.0</small>
         </div>
       </aside>
       <div className="shell">
@@ -525,6 +560,28 @@ function App() {
                 </div>
               )}
             </section>
+          )}
+          {page === "planning" && (
+            <Planning
+              data={data}
+              api={api}
+              run={run}
+              onState={setData}
+              onNotice={setNotice}
+              onOpen={edit}
+              busy={busy}
+              types={types}
+            />
+          )}
+          {page === "posts" && (
+            <PostLibrary
+              data={data}
+              api={api}
+              run={run}
+              onState={setData}
+              onNotice={setNotice}
+              busy={busy}
+            />
           )}
           {page === "schedule" && (
             <section className="panel padded">
@@ -1030,6 +1087,14 @@ function App() {
                     {busy ? "처리 중…" : "AI 초안 만들기"}
                   </button>
                 </section>
+                <RelatedLinks
+                  draft={draft}
+                  api={api}
+                  run={run}
+                  onChange={(body) => change("body", body)}
+                  onNotice={setNotice}
+                  busy={busy}
+                />
                 <section className="panel side-card">
                   <h3>
                     <ShieldCheck size={18} /> 검토 및 발행
@@ -1048,6 +1113,33 @@ function App() {
                       ))}
                     </select>
                   </label>
+                  <Classification
+                    site={data.sites.find((s) => s.id === draft.siteId)}
+                    catalog={data.catalogs?.[draft.siteId]}
+                    value={draft}
+                    busy={
+                      busy ||
+                      [
+                        "published",
+                        "publishing",
+                        "uncertain",
+                        "queued",
+                        "remote_scheduled",
+                        "missed",
+                      ].includes(draft.status)
+                    }
+                    onChange={(v) => {
+                      change("categoryIds", v.categoryIds || []);
+                      change("tagIds", v.tagIds || []);
+                      change("labels", v.labels || []);
+                    }}
+                    onSync={() =>
+                      run(async () => {
+                        setData(await api.syncTaxonomy(draft.siteId));
+                        setNotice("실제 사이트 분류를 불러왔습니다.");
+                      })
+                    }
+                  />
                   <div className="review-note">
                     별도 AI 검토는 연결한 자료와 원고를 대조합니다. 검색을 통한
                     독립적 사실 보증은 아니며, 최종 확인과 발행 승인은 사람이

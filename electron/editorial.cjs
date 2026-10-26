@@ -33,7 +33,16 @@ function reviewHash(d, site, sources) {
   return createHash("sha256")
     .update(
       JSON.stringify({
-        draft: fingerprint({ ...d, publication: { mode: "now" } }, site),
+        draft: fingerprint(
+          {
+            ...d,
+            publication: { mode: "now" },
+            categoryIds: [],
+            tagIds: [],
+            labels: [],
+          },
+          site,
+        ),
         profile: profile(site?.profile),
         evidence: evidence(d, sources).map((s) => ({
           id: s.id,

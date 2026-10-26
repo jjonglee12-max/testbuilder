@@ -1,5 +1,12 @@
 const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("studio", {
+  syncTaxonomy: (id) => ipcRenderer.invoke("syncTaxonomy", id),
+  syncPosts: (v) => ipcRenderer.invoke("syncPosts", v),
+  recommendLinks: (v) => ipcRenderer.invoke("recommendLinks", v),
+  savePlan: (v) => ipcRenderer.invoke("savePlan", v),
+  deletePlan: (id) => ipcRenderer.invoke("deletePlan", id),
+  startBatch: (v) => ipcRenderer.invoke("startBatch", v),
+  stopBatch: () => ipcRenderer.invoke("stopBatch"),
   load: () => ipcRenderer.invoke("load"),
   saveDraft: (d) => ipcRenderer.invoke("saveDraft", d),
   deleteDraft: (id) => ipcRenderer.invoke("deleteDraft", id),
