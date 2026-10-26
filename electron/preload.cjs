@@ -1,5 +1,14 @@
 const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("studio", {
+  saveCodex: (v) => ipcRenderer.invoke("saveCodex", v),
+  chooseCodex: (v) => ipcRenderer.invoke("chooseCodex", v),
+  testCodex: (v) => ipcRenderer.invoke("testCodex", v),
+  codexDocs: (v) => ipcRenderer.invoke("codexDocs", v),
+  setAIEngine: (v) => ipcRenderer.invoke("setAIEngine", v),
+  stopCodex: (v) => ipcRenderer.invoke("stopCodex", v),
+  startCodexTask: (v) => ipcRenderer.invoke("startCodexTask", v),
+  importCodexDraft: (v) => ipcRenderer.invoke("importCodexDraft", v),
+
   syncTaxonomy: (id) => ipcRenderer.invoke("syncTaxonomy", id),
   syncPosts: (v) => ipcRenderer.invoke("syncPosts", v),
   recommendLinks: (v) => ipcRenderer.invoke("recommendLinks", v),

@@ -34,6 +34,7 @@ import { RelatedLinks } from "./RelatedLinks";
 import { BackupPage, HistoryPanel } from "./Recovery";
 import { HTMLPreview, UpdatePanel } from "./UpdatePanel";
 import { DiffView } from "./DiffView";
+import { CodexPage, CodexProgress } from "./CodexPage";
 const blank = () => ({
   title: "",
   body: "",
@@ -114,9 +115,15 @@ function App() {
       .catch((e) => setNotice(e.message));
   }, []);
   useEffect(() => {
+    const codexWorking = ["running", "stopping"].includes(
+      data?.codexJob?.status,
+    );
+    const codexPending = busy && data?.aiEngine === "codex";
     const batching = ["running", "stopping"].includes(data?.batch?.status);
     if (
       !batching &&
+      !codexWorking &&
+      !codexPending &&
       !data?.drafts.some((d) => ["queued", "publishing"].includes(d.status))
     )
       return;
@@ -135,12 +142,15 @@ function App() {
           })
           .catch(() => {});
       },
-      batching ? 2000 : 15000,
+      codexWorking || codexPending ? 1000 : batching ? 2000 : 15000,
     );
     return () => clearInterval(timer);
   }, [
     data?.drafts.some((d) => ["queued", "publishing"].includes(d.status)),
     data?.batch?.status,
+    data?.codexJob?.status,
+    data?.aiEngine,
+    busy,
   ]);
   async function run(fn) {
     setBusy(true);
@@ -251,9 +261,14 @@ function App() {
     ["editor", PenLine, "새 글 작성"],
     ["sites", Globe, "사이트 관리"],
     ["settings", Settings, "AI · 프롬프트"],
+    ["codex", Sparkles, "Codex 작업실"],
     ["backup", Save, "백업 · 복원"],
   ];
   const titles = {
+    codex: [
+      "Codex 작업실",
+      "로컬 Codex로 자료를 살피고 원고를 준비하세요. 발행은 사람이 승인합니다.",
+    ],
     workspace: [
       "워크스페이스 설정",
       "내 편집 공간의 이름과 연결 상태를 관리하세요.",
@@ -342,7 +357,7 @@ function App() {
         <div className="sidebar-bottom">
           <span className="dot" />
           {preview ? "브라우저 화면 확인 모드" : "데스크톱 · 로컬 저장"}
-          <small>AI Blog Studio · v0.5.0</small>
+          <small>AI Blog Studio · v0.6.0</small>
         </div>
       </aside>
       <div className="shell">
@@ -371,6 +386,27 @@ function App() {
               </button>
             )}
           </div>
+          {page !== "codex" &&
+            ["running", "stopping"].includes(data.codexJob?.status) && (
+              <CodexProgress
+                compact
+                job={data.codexJob}
+                api={api}
+                onState={setData}
+                onNotice={setNotice}
+              />
+            )}
+          {page === "codex" && (
+            <CodexPage
+              data={data}
+              api={api}
+              run={run}
+              onState={setData}
+              onOpen={edit}
+              onNotice={setNotice}
+              busy={busy}
+            />
+          )}
           {preview && (
             <div className="preview-banner">
               <AlertCircle size={16} />
@@ -993,7 +1029,10 @@ function App() {
               <div className="editor-side">
                 <section className="panel side-card">
                   <h3>
-                    <Sparkles size={18} /> AI 작성 도우미
+                    <Sparkles size={18} />{" "}
+                    {data.aiEngine === "codex"
+                      ? "Codex 작성 도우미"
+                      : "AI 작성 도우미"}
                   </h3>
                   <label>
                     글쓰기 기준 사이트
@@ -1137,7 +1176,7 @@ function App() {
                     ))}
                   </details>
                   <p className="hint">
-                    자료는 설정한 AI 서비스로 전송됩니다. 개인정보와 비밀키를
+                    자료는 선택한 AI 엔진으로 전송됩니다. 개인정보와 비밀키를
                     넣지 마세요. 연결한 URL 자료와 메모가 함께 전송됩니다. 검색
                     엔진 탐색은 수행하지 않습니다.
                   </p>
@@ -1295,8 +1334,8 @@ function App() {
                     {busy ? "검토 중…" : "별도 AI 검토 실행"}
                   </button>
                   <p className="hint">
-                    별도 생성 요청으로 API 사용료가 발생합니다. AI 초안은 검토
-                    후 승인할 수 있습니다.
+                    별도 생성 요청으로 선택한 엔진의 이용량·비용이 발생합니다.
+                    AI 초안은 검토 후 승인할 수 있습니다.
                   </p>
                   {draft.review && (
                     <div className="review-report">
@@ -1836,14 +1875,27 @@ function App() {
           )}
           {page === "settings" && (
             <>
+              <section className="panel padded">
+                <h3>
+                  작업 엔진:{" "}
+                  {data.aiEngine === "codex" ? "로컬 Codex" : "AI API"}
+                </h3>
+                <p className="hint">
+                  Codex를 선택하면 초안·별도 검토·기존 글 수정·일괄 준비에서
+                  로컬 Codex를 사용합니다. 아래 API 설정은 별도로 유지됩니다.
+                </p>
+                <button className="secondary" onClick={() => setPage("codex")}>
+                  Codex 연결·작업 엔진 설정 열기
+                </button>
+              </section>
               <section className="panel padded ai-settings">
                 <h3>
                   <Sparkles size={18} /> AI API 연결
                 </h3>
                 <p className="hint">
                   OpenAI 호환 Chat Completions API를 사용합니다. 구독형 ChatGPT
-                  로그인과 별개이며 API 사용료가 발생할 수 있습니다. Codex CLI
-                  연결은 아직 지원하지 않습니다.
+                  로그인과 별개이며 API 사용료가 발생할 수 있습니다. 로컬
+                  Codex는 Codex 작업실에서 별도로 연결·선택합니다.
                 </p>
                 <div className="review-note">
                   ① API 기본 주소·모델·키 입력 → ② 모델 목록 확인(선택) → ③ 연결

@@ -422,7 +422,12 @@ function installPlanner({
           "유사한 글이 있는 기획은 중복 경고를 확인하고 허용 여부를 선택하세요.",
         );
     }
-    if (!S().ai.hasSecret && !S().ai.secret)
+    if (["running", "stopping"].includes(S().codexJob?.status))
+      throw Error("Codex 작업을 먼저 완료하거나 중지하세요.");
+    if (S().aiEngine === "codex") {
+      if (!S().codex?.connection?.loggedIn)
+        throw Error("Codex 연결을 먼저 확인하세요.");
+    } else if (!S().ai.hasSecret && !S().ai.secret)
       throw Error("AI API를 먼저 연결하세요.");
     const batch = {
       id: randomUUID(),

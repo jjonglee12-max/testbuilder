@@ -5,6 +5,7 @@ const {
   safeStorage,
   nativeImage,
   dialog,
+  shell,
 } = require("electron");
 const { setInterval } = require("node:timers");
 const {
@@ -37,8 +38,39 @@ const catalogTools = require("./catalog.cjs");
 const { installPlanner } = require("./planner.cjs");
 const { createStorage } = require("./storage.cjs");
 const { installUpdates, validateHTML } = require("./updates.cjs");
-let state, file, storage;
+const {
+  createCodex,
+  DRAFT_SCHEMA,
+  REVIEW_SCHEMA,
+  running: codexRunning,
+} = require("./codex.cjs");
+const { installCodex } = require("./codex-workflow.cjs");
+let state, file, storage, codex;
+async function completion(a, payload, kind = "draft") {
+  if (state.aiEngine === "codex") {
+    const result = await codex.run({
+      messages: payload.messages,
+      schema: kind === "review" ? REVIEW_SCHEMA : DRAFT_SCHEMA,
+      kind,
+      webSearch: false,
+    });
+    return {
+      choices: [{ message: { content: JSON.stringify(result.value) } }],
+      model: result.model,
+    };
+  }
+  return request(a.endpoint + "/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + decrypt(a.secret),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+}
 function assertBatchIdle() {
+  if (codex?.isBusy())
+    throw Error("Codex 작업을 완료하거나 중지한 뒤 변경하세요.");
   if (["running", "stopping"].includes(state?.batch?.status))
     throw Error(
       "일괄 준비가 실행 중입니다. 작업을 중지한 뒤 연결·편집 설정을 변경하세요.",
@@ -480,6 +512,7 @@ const ownsInstance = app.requestSingleInstanceLock
   ? app.requestSingleInstanceLock()
   : true;
 if (!ownsInstance) app.quit();
+app.on("before-quit", () => codex?.stop());
 app.on("second-instance", () => {
   mainWindow?.show();
   mainWindow?.focus();
@@ -523,6 +556,14 @@ if (ownsInstance)
     for (const d of state.drafts)
       if (d.status === "publishing") d.status = "uncertain";
     state.revisions ||= [];
+    state.aiEngine ||= "api";
+    state.codex ||= { executable: "", model: "", webSearch: false };
+    if (codexRunning(state.codexJob)) {
+      state.codexJob.status = "interrupted";
+      state.codexJob.stage = "앱 종료로 중단됨";
+      state.codexJob.error =
+        "자동 재개하지 않았습니다. 마지막 작업의 이용량이 발생했을 수 있습니다.";
+    }
     if (recovery) state.recovery = recovery;
     state.sources ||= [];
     state.media ||= [];
@@ -564,6 +605,11 @@ if (ownsInstance)
       }
     }
     state.workspace ||= { name: "개인 워크스페이스" };
+    codex = createCodex({
+      getState: () => state,
+      persist,
+      dir: path.dirname(file),
+    });
     storage = createStorage({
       getState: () => state,
       replaceState: (next) => {
@@ -681,6 +727,17 @@ if (ownsInstance)
       persist();
       return decorateDraft(d);
     };
+    installCodex({
+      ipcMain,
+      dialog,
+      shell,
+      getState: () => state,
+      persist,
+      publicState,
+      codex,
+      saveDraft: saveDraftContent,
+      assertBatchIdle,
+    });
     ipcMain.handle("saveDraft", (_, input) => saveDraftContent(input));
     ipcMain.handle("deleteDraft", (_, id) => {
       assertDraftIdle(id);
@@ -860,13 +917,9 @@ if (ownsInstance)
         refs = evidence(d, state.sources),
         hash = reviewHash(d, site, state.sources),
         a = { ...state.ai };
-      const result = await request(a.endpoint + "/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer " + decrypt(a.secret),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      const result = await completion(
+        a,
+        {
           model: a.model,
           response_format: { type: "json_object" },
           messages: [
@@ -890,8 +943,9 @@ if (ownsInstance)
               }),
             },
           ],
-        }),
-      });
+        },
+        "review",
+      );
       let value;
       try {
         value = JSON.parse(result.choices?.[0]?.message?.content);
@@ -907,7 +961,7 @@ if (ownsInstance)
         ),
         id: randomUUID(),
         hash,
-        model: a.model,
+        model: result.model || a.model,
         at: new Date().toISOString(),
         sourceIds: refs.map((s) => s.id),
         profile: profile(site?.profile),
@@ -961,14 +1015,10 @@ if (ownsInstance)
         state.sources,
       );
       const promptSnapshot = state.prompt;
-      httpsUrl(a.endpoint);
-      const result = await request(a.endpoint + "/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer " + decrypt(a.secret),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      if (state.aiEngine !== "codex") httpsUrl(a.endpoint);
+      const result = await completion(
+        a,
+        {
           model: a.model,
           messages: [
             {
@@ -995,8 +1045,9 @@ if (ownsInstance)
             },
           ],
           response_format: { type: "json_object" },
-        }),
-      });
+        },
+        "draft",
+      );
       const raw = result.choices?.[0]?.message?.content;
       let value;
       try {
@@ -1013,7 +1064,7 @@ if (ownsInstance)
       return {
         ...value,
         generation: {
-          model: a.model,
+          model: result.model || a.model,
           profile: siteProfile,
           sourceIds: refs.map((s) => s.id),
           promptHash: createHash("sha256").update(promptSnapshot).digest("hex"),
@@ -1224,6 +1275,7 @@ if (ownsInstance)
       saveDraft: saveDraftContent,
       assertDraftIdle,
       storage,
+      completion,
       aiHeaders: (a) => ({
         Authorization: "Bearer " + decrypt(a.secret),
         "Content-Type": "application/json",

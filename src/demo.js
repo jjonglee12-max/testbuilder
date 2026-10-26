@@ -22,6 +22,31 @@ const write = (s) => {
 export const preview = !window.studio;
 export const api = window.studio || {
   load: async () => read(),
+  saveCodex: async () => {
+    throw Error("Codex 연결과 실행은 데스크톱 앱에서 사용하세요.");
+  },
+  chooseCodex: async () => {
+    throw Error("Codex 연결과 실행은 데스크톱 앱에서 사용하세요.");
+  },
+  testCodex: async () => {
+    throw Error("Codex 연결과 실행은 데스크톱 앱에서 사용하세요.");
+  },
+  codexDocs: async () => {
+    throw Error("Codex 연결과 실행은 데스크톱 앱에서 사용하세요.");
+  },
+  setAIEngine: async () => {
+    throw Error("Codex 연결과 실행은 데스크톱 앱에서 사용하세요.");
+  },
+  stopCodex: async () => {
+    throw Error("Codex 연결과 실행은 데스크톱 앱에서 사용하세요.");
+  },
+  startCodexTask: async () => {
+    throw Error("Codex 연결과 실행은 데스크톱 앱에서 사용하세요.");
+  },
+  importCodexDraft: async () => {
+    throw Error("Codex 연결과 실행은 데스크톱 앱에서 사용하세요.");
+  },
+
   saveDraft: async (d) => {
     const s = read();
     const item = {

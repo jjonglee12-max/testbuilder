@@ -1269,3 +1269,58 @@ nav button {
 .tabs {
   flex-wrap: wrap;
 }
+.codex-layout {
+  display: grid;
+  gap: 20px;
+  max-width: 1150px;
+}
+.codex-layout fieldset {
+  margin: 16px 0;
+}
+.codex-progress {
+  border: 1px solid #aa91df66;
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 16px;
+}
+.codex-progress.compact {
+  margin-bottom: 18px;
+}
+.codex-progress p {
+  margin: 10px 0;
+}
+.codex-layout code {
+  user-select: all;
+  overflow-wrap: anywhere;
+  background: #a486d21a;
+  padding: 3px 6px;
+}
+.codex-layout details {
+  margin: 14px 0;
+}
+.codex-layout li {
+  line-height: 1.8;
+}
+.codex-source-list {
+  max-height: 200px;
+  overflow: auto;
+}
+.codex-draft {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  line-height: 1.8;
+  border: 1px solid var(--border);
+  padding: 20px;
+  max-height: 500px;
+  overflow: auto;
+}
+.preserve-lines {
+  white-space: pre-wrap;
+}
+.codex-result .backup-row h4 {
+  margin: 0 0 10px;
+}
+.codex-layout .panel {
+  min-width: 0;
+}
